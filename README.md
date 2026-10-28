@@ -1,7 +1,7 @@
 # Traffic Simulation
 
 Cars driving on a road network that you draw in [draw.io](https://www.drawio.com).
-Try it at https://alderg.github.io/traffic/.
+Try it at https://www.alderg.com/traffic/.
 
 This is a port of sim.traffic, a traffic simulation written in Java at ETH
 Zurich in 2000, to the browser. The road network is a draw.io diagram, so

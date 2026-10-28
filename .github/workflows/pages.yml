@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # The draw.io submodule is checked out without its history
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 1
@@ -29,8 +29,8 @@ jobs:
           cp -R index.html css js data _site/
           cp -R drawio/src/main/webapp _site/drawio/src/main/webapp
           rm -rf _site/drawio/src/main/webapp/WEB-INF
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
@@ -42,4 +42,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
