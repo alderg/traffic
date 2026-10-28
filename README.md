@@ -49,7 +49,9 @@ Then open http://localhost:8000.
 - `index.html`, `css/app.css` and `js/app.js` are the page. draw.io runs in
   an iframe on the same origin, served from the `drawio` submodule. The page
   gets the editor with `Draw.loadPlugin` and loads `js/simulation.js` into
-  the window of the editor.
+  the window of the editor. The editor starts in the Simple theme with the
+  shapes and format panels closed (`ui=simple`, `sidebar=0`, `format=0`),
+  and the View menu opens them.
 - `js/simulation.js` builds the network from the cells of the current page,
   runs the model and paints the cars into the overlay pane of the graph. It
   never changes the diagram, except for imports.
