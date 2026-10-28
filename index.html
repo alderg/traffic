@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traffic Simulation</title>
+<meta name="description" content="Cars driving on a road network that you draw in draw.io.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23e53935'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<aside class="panel" aria-label="Simulation">
+	<header>
+		<h1>Traffic Simulation</h1>
+		<p>Draw a road network in the editor and start the cars.</p>
+	</header>
+	<section>
+		<div class="buttons">
+			<button id="start" type="button" class="primary" disabled>Start</button>
+			<button id="reset" type="button" disabled>Reset</button>
+		</div>
+		<label class="row"><span>Cars</span><input id="cars" type="number" min="0" max="10000" disabled></label>
+		<label class="row"><span>Speed</span><select id="speed" disabled></select></label>
+		<label class="row"><span>Max. speed</span><select id="vmax" disabled></select></label>
+		<label class="row"><span>Dawdling</span><select id="noise" disabled></select></label>
+		<label class="check"><input id="reroute" type="checkbox" disabled> Reroute when waiting</label>
+		<label class="check"><input id="density" type="checkbox" disabled> Show density</label>
+	</section>
+	<section>
+		<div id="stats" class="stats">Loading the editor…</div>
+	</section>
+	<section>
+		<h2>Network</h2>
+		<label class="row"><span>Example</span><select id="example" disabled>
+			<option value="">Choose…</option>
+		</select></label>
+		<button id="import" type="button" disabled>Import .net File…</button>
+		<input id="file" type="file" accept=".net,.txt" hidden>
+	</section>
+	<section class="help">
+		<h2>Drawing Roads</h2>
+		<ul>
+			<li>Shapes are crossings, connectors between them are roads.</li>
+			<li>A connector with one arrow is a one-way road, one with no or two arrows a road in both directions.</li>
+			<li>Add <code>trafficLight=10</code> to the style of a shape for a traffic light that switches every 10 seconds.</li>
+			<li>1 unit is 1 meter and 1 step is 1 second.</li>
+		</ul>
+	</section>
+	<footer>
+		A port of sim.traffic (ETH Zurich, 2000) to
+		<a href="https://www.drawio.com" target="_blank" rel="noopener">draw.io</a>.
+		<a href="https://github.com/alderg/traffic" target="_blank" rel="noopener">Source</a>
+	</footer>
+</aside>
+<main class="editor">
+	<iframe id="editor" title="Diagram editor"
+		src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1"></iframe>
+</main>
+<script src="js/app.js"></script>
+</body>
+</html>
