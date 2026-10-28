@@ -10,7 +10,10 @@ are driving.
 
 ## Drawing Roads
 
-- Shapes are crossings, connectors between them are roads.
+- Shapes are crossings, connectors between them are roads. The Shapes
+  panel has a crossing, a two-way road, a one-way road and a crossing with
+  a traffic light. Select two crossings and click a road to connect them,
+  or drag from the arrows of a crossing, which draws a two-way road.
 - A connector with one arrow is a one-way road in the direction of the
   arrow. One with no or two arrows is a road in both directions, with a lane
   on the right of each direction.
@@ -48,10 +51,16 @@ Then open http://localhost:8000.
 
 - `index.html`, `css/app.css` and `js/app.js` are the page. draw.io runs in
   an iframe on the same origin, served from the `drawio` submodule. The page
-  gets the editor with `Draw.loadPlugin` and loads `js/simulation.js` into
-  the window of the editor. The editor starts in the Simple theme with the
-  shapes and format panels closed (`ui=simple`, `sidebar=0`, `format=0`),
-  and the View menu opens them.
+  gets the editor with `Draw.loadPlugin` and loads `js/roads.js` and
+  `js/simulation.js` into the window of the editor. The editor starts in the
+  Simple theme with the shapes and format panels closed (`ui=simple`,
+  `sidebar=0`, `format=0`), and the View menu opens them. It follows the
+  dark mode of the system (`dark=auto`), like the page. The tab on the edge
+  of the panel of the page hides it.
+- `js/roads.js` registers the road shape, which paints a connector as
+  asphalt with a dashed center line or with arrows for one-way roads, and
+  replaces the shape libraries with the palette of road elements. Other
+  draw.io apps paint roads as plain connectors.
 - `js/simulation.js` builds the network from the cells of the current page,
   runs the model and paints the cars into the overlay pane of the graph. It
   never changes the diagram, except for imports.

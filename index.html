@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<aside class="panel" aria-label="Simulation">
+<aside id="panel" class="panel" aria-label="Simulation">
 	<header>
 		<h1>Traffic Simulation</h1>
 		<p>Draw a road network in the editor and start the cars.</p>
@@ -41,6 +41,7 @@
 		<h2>Drawing Roads</h2>
 		<ul>
 			<li>Shapes are crossings, connectors between them are roads.</li>
+			<li>Open Shapes for crossings, roads and traffic lights. Select two crossings and click a road to connect them.</li>
 			<li>A connector with one arrow is a one-way road, one with no or two arrows a road in both directions.</li>
 			<li>Add <code>trafficLight=10</code> to the style of a shape for a traffic light that switches every 10 seconds.</li>
 			<li>1 unit is 1 meter and 1 step is 1 second.</li>
@@ -53,8 +54,12 @@
 	</footer>
 </aside>
 <main class="editor">
+	<button id="toggle" class="toggle" type="button" aria-controls="panel" aria-expanded="true"
+		aria-label="Hide the simulation panel" title="Hide the simulation panel">
+		<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
+	</button>
 	<iframe id="editor" title="Diagram editor"
-		src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1&amp;ui=simple&amp;sidebar=0&amp;format=0"></iframe>
+		src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1&amp;ui=simple&amp;sidebar=0&amp;format=0&amp;dark=auto"></iframe>
 </main>
 <script src="js/app.js"></script>
 </body>

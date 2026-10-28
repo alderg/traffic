@@ -3,9 +3,9 @@
  */
 /**
  * Page of the traffic simulation. draw.io runs in the editor frame as the
- * editor of the road network. Once it is ready, js/simulation.js is loaded
- * into the frame and attached to its graph, and the controls of this page
- * drive the simulation.
+ * editor of the road network. Once it is ready, js/roads.js and
+ * js/simulation.js are loaded into the frame and attached to the editor, and
+ * the controls of this page drive the simulation.
  */
 (function()
 {
@@ -53,18 +53,45 @@
 	};
 
 	/**
-	 * Loads the simulation into the window of the editor, so that it uses the
-	 * classes of draw.io directly, and attaches it to the graph.
+	 * Loads the given scripts in order into the window of the editor and
+	 * calls fn when all are loaded.
+	 */
+	function loadScripts(names, fn)
+	{
+		var win = frame.contentWindow;
+
+		if (names.length == 0)
+		{
+			fn();
+		}
+		else
+		{
+			var script = win.document.createElement('script');
+			script.src = new URL(names[0], document.baseURI).href;
+
+			script.onload = function()
+			{
+				loadScripts(names.slice(1), fn);
+			};
+
+			win.document.head.appendChild(script);
+		}
+	};
+
+	/**
+	 * Loads the road elements and the simulation into the window of the
+	 * editor, so that they use the classes of draw.io directly, and attaches
+	 * them to the editor.
 	 */
 	function attach(editorUi)
 	{
 		var win = frame.contentWindow;
-		var script = win.document.createElement('script');
-		script.src = new URL('js/simulation.js', document.baseURI).href;
 
-		script.onload = function()
+		loadScripts(['js/roads.js', 'js/simulation.js'], function()
 		{
 			ui = editorUi;
+			win.TrafficRoads(ui);
+			keepFormatPanelClosed();
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
 			sim.start();
@@ -73,9 +100,59 @@
 			{
 				openExample('small');
 			}
-		};
+		});
+	};
 
-		win.document.head.appendChild(script);
+	/**
+	 * Keeps draw.io from opening the format panel when the editor gets wider
+	 * than the limit for small screens, eg. when the panel of this page is
+	 * hidden, unless draw.io closed it when the editor got narrower.
+	 */
+	function keepFormatPanelClosed()
+	{
+		var windowResized = ui.windowResized;
+		var closedBySize = false;
+
+		ui.windowResized = function()
+		{
+			var width = frame.contentWindow.innerWidth;
+			var limit = frame.contentWindow.Editor.smallScreenWidth;
+			var last = this.lastWindowWidth;
+
+			if (last != null && last >= limit && width < limit)
+			{
+				closedBySize = this.isFormatPanelVisible();
+			}
+			else if (last != null && last < limit && width >= limit)
+			{
+				// Skips the opening in windowResized
+				if (!closedBySize)
+				{
+					this.lastWindowWidth = width;
+				}
+
+				closedBySize = false;
+			}
+
+			windowResized.apply(this, arguments);
+		};
+	};
+
+	/**
+	 * Shows or hides the panel of this page. The editor takes its space.
+	 */
+	function initPanelToggle()
+	{
+		var toggle = document.getElementById('toggle');
+
+		toggle.addEventListener('click', function()
+		{
+			var collapsed = document.body.classList.toggle('collapsed');
+			var label = (collapsed) ? 'Show the simulation panel' : 'Hide the simulation panel';
+			toggle.setAttribute('aria-expanded', String(!collapsed));
+			toggle.setAttribute('aria-label', label);
+			toggle.title = label;
+		});
 	};
 
 	function update(lines, running)
@@ -218,5 +295,6 @@
 		}
 	};
 
+	initPanelToggle();
 	waitForEditor(attach);
 })();

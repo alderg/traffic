@@ -1046,7 +1046,7 @@ window.TrafficSimulation = function(ui, listener)
 	function updateSizes()
 	{
 		var r = getSize(0.4, 2.5);
-		var w = getSize(0.8, 4);
+		var w = getSize(0.5, 3);
 		var lr = getSize(0.35, 2.5);
 
 		sim.active.forEach(function(v)
@@ -1094,7 +1094,7 @@ window.TrafficSimulation = function(ui, listener)
 				link.node = document.createElementNS(mxConstants.NS_SVG, 'path');
 				link.node.setAttribute('d', d.join(' '));
 				link.node.setAttribute('fill', 'none');
-				link.node.setAttribute('stroke-width', getSize(0.8, 4));
+				link.node.setAttribute('stroke-width', getSize(0.5, 3));
 				link.node.setAttribute('stroke-linecap', 'round');
 				link.node.setAttribute('stroke-opacity', '0.35');
 				overlay.roads.appendChild(link.node);
