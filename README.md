@@ -185,8 +185,9 @@ more space (the left if both have as much), with the same checks and
 turns, and stays in that lane, as nobody keeps right. The setting applies
 at once and, like the others, is not kept when the page reloads. In
 roundabouts, cars choose their ring lane by their exit under both rules,
-and the passing through the oncoming lane below is the same too. On roads
-with one lane per direction, a car that is blocked by a slower vehicle, eg. a
+and the passing through the oncoming lane below is the same too. With
+Overtake in the oncoming lane in the panel, on by default, on roads with
+one lane per direction, a car that is blocked by a slower vehicle, eg. a
 truck, passes it through the oncoming lane, with a probability of 50 %
 per step, one car per road at a time: only if the cell behind it and two
 cells ahead of the slower one are free, if it can be past while
@@ -202,7 +203,12 @@ the road comes too near or it takes longer than 60 steps. Its lane changes
 are painted like the others. Cars only pass where vehicles have different
 top speeds, so not on roads whose speed limit is below that of trucks.
 The panel counts the overtakes in the oncoming lane and those that were
-aborted. Crossings let
+aborted. Turned off, also while the simulation runs, no new passes start
+and the cars that pass at that moment finish or abort their pass as
+above; then the cars queue behind slower ones on these roads, with the
+same steps and random draws as before there was overtaking, and the panel
+leaves out the line of the overtakes. Like the others, the setting is not
+kept when the page reloads. Crossings let
 as many cars pass per step as their widest incoming road has lanes and
 take the incoming roads in turns. Cars only pass from
 lanes that allow their turn and drive through crossings on a curve at one

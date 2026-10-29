@@ -1915,7 +1915,7 @@
 
 		var labelsHint = document.getElementById('labels-hint');
 
-		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'labels', 'center'].forEach(function(key)
+		['reroute', 'passEitherSide', 'passOncoming', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'labels', 'center'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];

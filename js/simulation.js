@@ -45,13 +45,15 @@
  *
  * Trucks, cars and fast cars have their own top speed, so that faster ones
  * pass slower ones where there is a free lane and queue behind them where
- * there is none. On roads with one lane per direction, a car that is
- * blocked by a slower one passes it through the oncoming lane if there is
- * space to get back in ahead of it and it can pass before an oncoming car,
- * the end of the road or a turn comes near (Link.prototype.mayPass), one
- * per road at a time. Oncoming cars brake for it and the cars behind keep
- * the cell behind it free, so that it can always fall back in when it
- * aborts (Link.prototype.stepPasser). Vehicles are painted from above with
+ * there is none. On roads with one lane per direction, with passOncoming in
+ * the config, a car that is blocked by a slower one passes it through the
+ * oncoming lane if there is space to get back in ahead of it and it can pass
+ * before an oncoming car, the end of the road or a turn comes near
+ * (Link.prototype.mayPass), one per road at a time. Oncoming cars brake for
+ * it and the cars behind keep the cell behind it free, so that it can
+ * always fall back in when it aborts (Link.prototype.stepPasser). Without
+ * passOncoming, cars that pass finish or abort their pass and no new ones
+ * start. Vehicles are painted from above with
  * the shape of their type along their lane, turned in their direction
  * through curves, crossings, roundabouts and lane changes, and in the color
  * of their speed in the color set of the config (colors), unless vehicles in
@@ -192,7 +194,7 @@ window.TrafficSimulation = function(ui, listener)
 	// Stop bars on the road, darker on the lighter road of light mode
 	var themeBarColors = ['light-dark(#d93025,#ff3b30)', 'light-dark(#f29900,#ffcc00)', 'light-dark(#188038,#34c759)'];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1, passEitherSide: false, roads: true, lights: false, vehicles: true,
+		trucks: 0.2, fast: 0.1, passEitherSide: false, passOncoming: true, roads: true, lights: false, vehicles: true,
 		mapBackground: false, center: false, adaptive: true, colors: 'blueRed'};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
@@ -636,7 +638,8 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Moves the car that passes through the oncoming lane of this link or
-	 * lets one start, before the cars of the links move in this step.
+	 * lets one start with passOncoming, before the cars of the links move in
+	 * this step.
 	 */
 	Link.prototype.stepPass = function()
 	{
@@ -646,7 +649,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			this.passMoved += this.stepPasser(v);
 		}
-		else if (v == null && this.vehicles > 1)
+		else if (v == null && this.vehicles > 1 && config.passOncoming)
 		{
 			this.passMoved += this.startPass();
 		}
@@ -2945,12 +2948,27 @@ window.TrafficSimulation = function(ui, listener)
 			v.path = null;
 		});
 
-		for (var i = 0; i < net.passable.length; i++)
+		if (config.passOncoming)
 		{
-			if (net.passable[i].vehicles > 0)
+			for (var i = 0; i < net.passable.length; i++)
 			{
-				net.passable[i].stepPass();
+				if (net.passable[i].vehicles > 0)
+				{
+					net.passable[i].stepPass();
+				}
 			}
+		}
+		else if (net.passing.size > 0)
+		{
+			// Cars that pass finish or abort their pass, without new ones and
+			// their random draws, as before there was overtaking
+			Array.from(net.passing).forEach(function(road)
+			{
+				if (road.passer != null)
+				{
+					road.passer.link.stepPass();
+				}
+			});
 		}
 
 		for (var i = 0; i < net.links.length; i++)
@@ -4513,8 +4531,12 @@ window.TrafficSimulation = function(ui, listener)
 			}
 
 			lines.push('Reroutes: ' + sim.replanned);
-			lines.push('Overtakes in the oncoming lane: ' + sim.passes + ((sim.passAborts > 0) ?
-				', ' + sim.passAborts + ' aborted' : ''));
+
+			if (config.passOncoming)
+			{
+				lines.push('Overtakes in the oncoming lane: ' + sim.passes + ((sim.passAborts > 0) ?
+					', ' + sim.passAborts + ' aborted' : ''));
+			}
 
 			if (config.labels && labels != null && (labels.hidden || labels.unplaced > 0))
 			{
@@ -5029,7 +5051,8 @@ window.TrafficSimulation = function(ui, listener)
 	 * hit, and stops painting the stop bars, hiding the traffic lights stops
 	 * painting their heads while they keep switching, colors paints the
 	 * vehicles in another color set, center turned on again ends a pause of
-	 * centering, adaptive paints the roads, the vehicles, the stop bars and
+	 * centering, passOncoming turned off starts no new passes through the
+	 * oncoming lane, adaptive paints the roads, the vehicles, the stop bars and
 	 * the density in the colors of the theme or in the same ones for both,
 	 * and mapBackground, which the page sets while the map is behind the
 	 * roads, changes the colors of the vehicles without adaptive.
@@ -5125,6 +5148,11 @@ window.TrafficSimulation = function(ui, listener)
 				updateNetwork();
 			}
 
+			schedule();
+		}
+		else if (key == 'passOncoming')
+		{
+			// Shows or hides the overtakes in the statistics, also while paused
 			schedule();
 		}
 		else if (key == 'colors')
