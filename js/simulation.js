@@ -54,9 +54,10 @@
  * aborts (Link.prototype.stepPasser). Vehicles are painted from above with
  * the shape of their type along their lane, turned in their direction
  * through curves, crossings, roundabouts and lane changes, and in the color
- * of their speed from blue to red, unless vehicles in the config is off,
- * which skips painting them, like lights for the traffic lights and roads
- * for the drawing of the diagram. They, traffic lights and the density of the
+ * of their speed in the color set of the config (colors), unless vehicles in
+ * the config is off, which skips painting them, like lights for the heads of
+ * the traffic lights and roads for the drawing of the diagram with the stop
+ * bars on its lanes. They, traffic lights and the density of the
  * lanes are painted into the overlay pane, and optionally labels with the
  * cars that are on each road and junction in view, on their way there, and
  * that entered and left. Each link and junction counts its cars for the
@@ -151,21 +152,37 @@ window.TrafficSimulation = function(ui, listener)
 			windows: 'M 1.05 -1 Q 1.35 0 1.05 1 L 0.1 0.92 L 0.1 -0.92 Z ' +
 			'M -1.25 -0.85 L -1.25 0.85 L -1.8 0.92 L -1.8 -0.92 Z'}};
 
-	// Colors of the speed from standing to the fastest vehicles, from blue over
-	// violet and magenta to red, which stand out from the green of free lanes,
-	// as light-dark pairs for the theme (adaptive in the config, see
-	// TrafficRoads.themeAsphalt): dark vehicles on the lighter road of light
-	// mode (#a3a8ad), at least 3.15:1 against it at every step and 7.5:1
-	// against white, also on the light map, and light ones on the darker road
-	// of dark mode (#3c4043), at least 5.2:1, also on the dark map. Without
-	// adaptive, the road is the same gray (#5f6368) in both themes and the
-	// vehicles on it are light, at least 3:1, and dark on the light map
-	// without the roads, at least 5:1 against white.
+	// Color sets of the speed from standing to the fastest vehicles (colors in
+	// the config), as light-dark pairs for the theme (adaptive in the config,
+	// see TrafficRoads.themeAsphalt): dark colors on the lighter road of light
+	// mode (#a3a8ad), at least 3:1 against it at every step and 7.5:1 against
+	// white, also on the light map, and light ones on the darker road of dark
+	// mode (#3c4043), at least 5:1, also on the dark map. Without adaptive, the
+	// road is the same gray (#5f6368) in both themes and the vehicles on it
+	// are light, at least 3:1, and dark on the light map without the roads
+	// (map, else light). The first set is the default, from blue over violet
+	// and magenta to red, which stand out from the green of free lanes.
 	var speedStops = ['#71bfff', '#baafff', '#f993ff', '#ff98ca', '#ff9f8f'];
-	var themeSpeedStops = ['#0040dd', '#5b00f6', '#9400a1', '#a50060', '#a91100'];
-	var mapSpeedStops = ['#0d61ff', '#792cff', '#b100bd', '#c20080', '#cb0e00'];
-	var speedStopPairs = {theme: {light: themeSpeedStops, dark: speedStops},
-		map: {light: mapSpeedStops, dark: speedStops}, fixed: {light: speedStops, dark: speedStops}};
+	var colorSets = {
+		blueRed: {label: 'Blue, violet, red', light: ['#0040dd', '#5b00f6', '#9400a1', '#a50060', '#a91100'],
+			dark: speedStops, map: ['#0d61ff', '#792cff', '#b100bd', '#c20080', '#cb0e00']},
+		redGreen: {label: 'Red, yellow, green', light: ['#a60000', '#833d00', '#5f5000', '#375a05', '#055e0c'],
+			dark: ['#ffb1b1', '#ffb575', '#e9c200', '#85db0c', '#0ce41e']},
+		yellowGreen: {label: 'Yellow to green', light: ['#674b00', '#525200', '#345900', '#025d02', '#005b45'],
+			dark: ['#fdb900', '#cbcb00', '#81dc00', '#06e406', '#00dfa8']},
+		blueOrange: {label: 'Blue to orange (colorblind-friendly)', light: ['#003fd1', '#1e518d', '#515145',
+			'#6b4a13', '#833d00'], dark: ['#acc5ff', '#a9c8ed', '#c5c5bb', '#e8bf7a', '#ffb575']},
+		rainbow: {label: 'Rainbow', light: ['#0022fc', '#00586f', '#085e1d', '#595200', '#a40b00'],
+			dark: ['#b8c2ff', '#32d6ff', '#12e347', '#dac700', '#ffb1ac']}};
+
+	// Pairs of stops for light and dark mode of each set
+	Object.keys(colorSets).forEach(function(name)
+	{
+		var set = colorSets[name];
+		set.theme = {light: set.light, dark: set.dark};
+		set.onMap = {light: set.map || set.light, dark: set.dark};
+		set.fixed = {light: set.dark, dark: set.dark};
+	});
 	var minVehiclePx = 9;
 	var maxWindowsScale = 1.5;
 	var vehicleStroke = 0.35;
@@ -174,9 +191,9 @@ window.TrafficSimulation = function(ui, listener)
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	// Stop bars on the road, darker on the lighter road of light mode
 	var themeBarColors = ['light-dark(#d93025,#ff3b30)', 'light-dark(#f29900,#ffcc00)', 'light-dark(#188038,#34c759)'];
-	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1, passEitherSide: false, roads: true, lights: true, vehicles: true,
-		mapBackground: false, center: false, adaptive: true};
+	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
+		trucks: 0.2, fast: 0.1, passEitherSide: false, roads: true, lights: false, vehicles: true,
+		mapBackground: false, center: false, adaptive: true, colors: 'blueRed'};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -3251,13 +3268,14 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
-		// Layers from the bottom up: density, route, traffic lights, cars
+		// Layers from the bottom up: density, route, stop bars, which belong to
+		// the roads, heads of the traffic lights, cars
 		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
 			route: createNode('g', root, {}), bars: createNode('g', root, {}), heads: createNode('g', root, {}),
 			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
 			labels: createNode('g', root, {}), focus: createNode('g', root, {})};
 		overlay.cars.style.display = (config.vehicles) ? '' : 'none';
-		overlay.bars.style.display = (config.lights) ? '' : 'none';
+		overlay.bars.style.display = (config.roads) ? '' : 'none';
 		overlay.heads.style.display = (config.lights) ? '' : 'none';
 		graph.view.getDrawPane().style.display = (config.roads) ? '' : 'none';
 		outlines = {scale: 0};
@@ -3451,8 +3469,9 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		// Hidden lights keep the state they show until they are shown again
-		for (var i = 0; i < net.crossings.length && config.lights; i++)
+		// Hidden stop bars and heads keep the state they show until they are
+		// shown again
+		for (var i = 0; i < net.crossings.length && (config.roads || config.lights); i++)
 		{
 			var crossing = net.crossings[i];
 
@@ -3461,10 +3480,15 @@ window.TrafficSimulation = function(ui, listener)
 				var signal = crossing.signals[j];
 				var state = crossing.getSignal(signal.phase);
 
-				if (state != signal.state)
+				if (config.roads && state != signal.barState)
 				{
-					signal.state = state;
+					signal.barState = state;
 					signal.bar.style.stroke = (config.adaptive) ? themeBarColors[state] : lampColors[state][0];
+				}
+
+				if (config.lights && state != signal.lampState)
+				{
+					signal.lampState = state;
 
 					for (var k = 0; k < 3; k++)
 					{
@@ -3774,12 +3798,13 @@ window.TrafficSimulation = function(ui, listener)
 	 * Returns the colors of the speeds in light and dark mode for what is
 	 * under the vehicles: with adaptive, the roads of the theme and the light
 	 * map or the inverted dark map, else the gray roads, and the light map
-	 * without the roads (see speedStops).
+	 * without the roads, in the color set of the config (see colorSets).
 	 */
 	function getSpeedStopPair()
 	{
-		return (config.adaptive) ? speedStopPairs.theme :
-			((config.mapBackground && !config.roads) ? speedStopPairs.map : speedStopPairs.fixed);
+		var set = colorSets[config.colors] || colorSets.blueRed;
+
+		return (config.adaptive) ? set.theme : ((config.mapBackground && !config.roads) ? set.onMap : set.fixed);
 	};
 
 	/**
@@ -5001,8 +5026,9 @@ window.TrafficSimulation = function(ui, listener)
 	 * interpolation, Show density repaints the roads, hiding the vehicles
 	 * stops painting them, also the selected one, hiding the roads takes the
 	 * draw pane out of the page, so that its cells are neither painted nor
-	 * hit, hiding the traffic lights stops painting their stop bars and heads
-	 * while they keep switching, center turned on again ends a pause of
+	 * hit, and stops painting the stop bars, hiding the traffic lights stops
+	 * painting their heads while they keep switching, colors paints the
+	 * vehicles in another color set, center turned on again ends a pause of
 	 * centering, adaptive paints the roads, the vehicles, the stop bars and
 	 * the density in the colors of the theme or in the same ones for both,
 	 * and mapBackground, which the page sets while the map is behind the
@@ -5037,19 +5063,23 @@ window.TrafficSimulation = function(ui, listener)
 		else if (key == 'roads' && overlay != null)
 		{
 			// Hidden roads and junctions are neither painted nor hit, and the
-			// selection of the diagram ends
+			// selection of the diagram ends. The stop bars belong to the roads.
 			graph.view.getDrawPane().style.display = (value) ? '' : 'none';
+			overlay.bars.style.display = (value) ? '' : 'none';
 
 			if (!value)
 			{
 				graph.clearSelection();
+			}
+			else if (net != null)
+			{
+				updateNetwork();
 			}
 
 			schedule();
 		}
 		else if (key == 'lights' && overlay != null)
 		{
-			overlay.bars.style.display = (value) ? '' : 'none';
 			overlay.heads.style.display = (value) ? '' : 'none';
 
 			if (value && net != null)
@@ -5088,13 +5118,18 @@ window.TrafficSimulation = function(ui, listener)
 				{
 					for (var j = 0; net.crossings[i].signals != null && j < net.crossings[i].signals.length; j++)
 					{
-						net.crossings[i].signals[j].state = null;
+						net.crossings[i].signals[j].barState = null;
 					}
 				}
 
 				updateNetwork();
 			}
 
+			schedule();
+		}
+		else if (key == 'colors')
+		{
+			// Paints every vehicle in the new colors, also while paused
 			schedule();
 		}
 		else if (key == 'center')
@@ -5965,6 +6000,6 @@ window.TrafficSimulation = function(ui, listener)
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
-		vehicleShapes: vehicleShapes, speedStops: speedStops, getSpeedStops: getSpeedStops,
+		vehicleShapes: vehicleShapes, colorSets: colorSets, getSpeedStops: getSpeedStops,
 		selectVehicle: selectVehicle, isCenterPaused: isCenterPaused, setDebug: setDebug};
 };

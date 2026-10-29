@@ -7,12 +7,12 @@
  * js/simulation.js are loaded into the frame and attached to the editor, and
  * the controls of this page drive the simulation.
  *
- * Debug output is on unless ?dev=0 is in the URL or the checkbox is cleared.
- * It logs all errors of the page, the editor and the simulation with their
- * stack, also the errors that draw.io catches and shows, and makes the
- * simulation write its state to the console once a second. ?dev=1 or
- * ?test=1 also passes test=1 to the editor for its own debug messages and
- * the Develop menu.
+ * Debug output is off unless ?dev=1 or ?test=1 is in the URL or the checkbox
+ * turns it on, which does not change the URL. It logs all errors of the
+ * page, the editor and the simulation with their stack, also the errors that
+ * draw.io catches and shows, and makes the simulation write its state to the
+ * console once a second. ?dev=1 or ?test=1 also passes test=1 to the editor
+ * for its own debug messages and the Develop menu.
  *
  * ?city=<name> or ?osm=<type>/<id> loads the road network of that town from
  * OpenStreetMap at start instead of the example (js/osm.js), with roads=main,
@@ -34,8 +34,8 @@
 		{label: 'Bottleneck with a bypass', name: 'bottleneck'}];
 	var frame = document.getElementById('editor');
 	var params = new URLSearchParams(window.location.search);
-	var debug = params.get('dev') != '0' && params.get('test') != '0';
 	var testMode = params.get('dev') == '1' || params.get('test') == '1';
+	var debug = testMode;
 	frame.src = frame.getAttribute('data-src') + ((testMode) ? '&test=1' : '');
 	var startButton = document.getElementById('start');
 	var stats = document.getElementById('stats');
@@ -207,32 +207,13 @@
 	};
 
 	/**
-	 * Turns the debug output of this page and the simulation on or off and
-	 * keeps it in the URL of this page for reloads.
+	 * Turns the debug output of this page and the simulation on or off, like
+	 * the other display settings until the page reloads, without changing the
+	 * URL.
 	 */
 	function setDebug(value)
 	{
 		debug = value;
-
-		if (value)
-		{
-			if (params.get('dev') == '0')
-			{
-				params['delete']('dev');
-			}
-
-			if (params.get('test') == '0')
-			{
-				params['delete']('test');
-			}
-		}
-		else
-		{
-			params['delete']('test');
-			params.set('dev', '0');
-		}
-
-		writeParams();
 
 		if (sim != null)
 		{
@@ -425,7 +406,8 @@
 
 	/**
 	 * Shows the colors of the speeds that the vehicles have now, which depend
-	 * on the theme of the editor, Adapt colors and the map background.
+	 * on the color set, the theme of the editor, Adapt colors and the map
+	 * background.
 	 */
 	function updateLegend()
 	{
@@ -1919,6 +1901,18 @@
 
 		updateTypes();
 
+		// Color sets of the speeds, which the legend shows at once
+		var colors = document.getElementById('colors');
+		var colorNames = Object.keys(sim.colorSets);
+		addOptions(colors, colorNames, colorNames.map(function(name) { return sim.colorSets[name].label; }));
+		colors.value = config.colors;
+
+		colors.addEventListener('change', function()
+		{
+			sim.setOption('colors', colors.value);
+			updateLegend();
+		});
+
 		var labelsHint = document.getElementById('labels-hint');
 
 		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'labels', 'center'].forEach(function(key)
@@ -1982,6 +1976,23 @@
 			controls[i].disabled = false;
 		}
 	};
+
+	// Earlier versions wrote dev=0 or test=0 into the URL to turn debug output
+	// off, which is the default now
+	if (params.get('dev') == '0' || params.get('test') == '0')
+	{
+		if (params.get('dev') == '0')
+		{
+			params['delete']('dev');
+		}
+
+		if (params.get('test') == '0')
+		{
+			params['delete']('test');
+		}
+
+		writeParams();
+	}
 
 	var debugBox = document.getElementById('debug');
 	debugBox.checked = debug;

@@ -4,7 +4,8 @@
 /**
  * Opens the page at the given URL in headless Chrome and checks that draw.io
  * starts, the roads and the simulation attach to it, the Town example opens
- * with its network and cars drive, without errors on the page. The update of
+ * with its network and cars drive, without errors on the page, with debug
+ * output on, which logs the errors that draw.io catches. The update of
  * draw.io runs it before it pushes a new release
  * (.github/workflows/update-drawio.yml).
  *
@@ -27,7 +28,8 @@ async function main()
 	{
 		var page = await browser.newPage({viewport: {width: 1280, height: 800}});
 
-		// Debug output logs the errors of the page and the editor
+		// Debug output, which the test turns on, logs the errors of the page
+		// and the editor
 		page.on('pageerror', function(e)
 		{
 			errors.push(e.message);
@@ -41,7 +43,8 @@ async function main()
 			}
 		});
 
-		await page.goto(url, {timeout: timeout});
+		await page.goto(url, {timeout: timeout, waitUntil: 'domcontentloaded'});
+		await page.check('#debug');
 		await page.waitForSelector('#start:not([disabled])', {timeout: timeout});
 		console.log('The editor started and the simulation attached');
 		await page.waitForFunction(function()

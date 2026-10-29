@@ -27,8 +27,10 @@ see [Loading Your Town](#loading-your-town).
   the end of lanes with turns.
 - `trafficLight=10` in the style of a junction makes it a traffic light
   that gives green to one approach axis at a time for 10 seconds, followed
-  by 3 seconds of yellow. The lights show their state while the simulation
-  runs.
+  by 3 seconds of yellow. While the simulation runs, a stop bar across the
+  lanes of each approach shows its state in red, yellow or green, and the
+  heads of the traffic lights with their lamps beside the road show it too
+  when Traffic light heads in the panel is on (off by default).
 - A roundabout (`shape=roundabout`) is a ring road where traffic circulates
   counterclockwise, with 1 to 3 lanes (`lanes`). Cars give way to the ring
   when they enter.
@@ -57,21 +59,25 @@ see [Loading Your Town](#loading-your-town).
   400 roads and junctions are in view.
 - The layers in the panel are shown and hidden each on its own, in any
   combination, from the bottom up: Map background (for towns, see
-  [Map Background](#map-background)), Roads and junctions, Traffic lights
-  and Vehicles, all on by default. The simulation runs on exactly as
-  before whatever is shown, with its statistics, counts and density, and
-  a hidden layer is not painted, which saves the time of painting it
-  (Zurich with all streets and 1,000 cars at 10x: 11 frames per second
-  with all layers, 47 with only the map and the vehicles, in Chrome
-  without a GPU). Hidden roads and junctions cannot be clicked or
-  selected, also not with a rectangle, and the selection ends; shown, they
-  are clicked, selected and edited as usual, also on the map. Hidden
-  traffic lights keep switching, only their stop bars and lights are not
-  painted (the symbol of the junction belongs to the roads). With hidden
-  vehicles, clicks go to the roads under them and a vehicle that is
-  followed is let go. On again, each layer shows the state of now. Like
-  the other display settings, the layers are not kept when the page
-  reloads.
+  [Map Background](#map-background)), Roads and junctions, with the stop
+  bars on their lanes, Traffic light heads and Vehicles. All are on by
+  default except the heads of the traffic lights, as the stop bars show
+  the phases on the road. The simulation runs on exactly as before whatever is shown,
+  with its statistics, counts and density, and a hidden layer is not
+  painted, which saves the time of painting it (Zurich with all streets
+  and 1,000 cars at 10x: 11 frames per second with all layers, 47 with
+  only the map and the vehicles, in Chrome without a GPU). Hidden roads
+  and junctions cannot be clicked or selected, also not with a rectangle,
+  and the selection ends; shown, they are clicked, selected and edited as
+  usual, also on the map. The traffic lights keep switching whether their
+  heads and stop bars are shown or not (the small symbol in the middle of
+  the junction belongs to the roads). With hidden vehicles, clicks go to
+  the roads under them and a vehicle that is followed is let go. On again,
+  each layer shows the state of now. Like the other display settings, the
+  layers are not kept when the page reloads.
+- Show density in the panel, off by default, colors each lane by its
+  density, from green when it is free to red at half of its cells (stop
+  and go).
 - Click a vehicle to follow it: a ring and a label with its type and speed
   drive along with it, its route is colored from its start A to its
   destination B, and the Vehicle section of the panel shows its data live:
@@ -125,31 +131,51 @@ the panel, and at most the speed limit of the road. Faster vehicles queue behind
 and pass them where there is a free lane. Vehicles are painted from above
 as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
 along their lane, turned in their direction through curves, crossings,
-roundabouts and lane changes, and in the color of their speed from blue
-when they stand over violet and magenta to red for the fastest, as in the
-legend of the panel. With Adapt colors to light/dark mode in the panel,
-on by default, roads and vehicles follow the theme together: in light mode
-the road is lighter (#a3a8ad) and the vehicles on it dark (#0040dd,
-#5b00f6, #9400a1, #a50060, #a91100), with a contrast of at least 3.15:1
-to the road at every speed and 7.5:1 to white, so also on the light map
-with or without the roads; in dark mode the road is darker (#3c4043) and
-the vehicles light (#71bfff, #baafff, #f993ff, #ff98ca, #ff9f8f), at
-least 5.2:1 to the road, also on the inverted dark map. The white
-markings have 2.4:1 to the light road and 10:1 to the dark one, the stop
-bars are darker on the light road (#d93025, #f29900, #188038), and the
-density stripes are a bit more opaque on both, darker on the light road
-and lighter on the dark one. Off, the road is the same
-mid-gray (#5f6368) in both themes and the vehicles on it light (the colors
-of dark mode), at least 3:1, and dark on the light map with the roads and
-junctions hidden (#0d61ff, #792cff, #b100bd, #c20080, #cb0e00), at least
-5:1 to white. The colors are light-dark pairs that the browser resolves
-for the theme of the editor, so a change of the theme repaints nothing,
-and the legend follows the theme, the layers and the checkbox at once.
-The road of the theme stands for the gray asphalt that the styles of
-roads and junctions have (`light-dark(#5f6368,#5f6368)`), also in saved
-diagrams and loaded towns, and other colors in their styles are kept.
-Like the other display settings, the checkbox is not kept when the page
-reloads. Cars keep their lane. They change to the next lane
+roundabouts and lane changes, and in the color of their speed, as in the
+legend of the panel. Colors in the panel picks the set of colors from
+standing to the fastest vehicles: Blue, violet, red (the default, from blue
+when they stand over violet and magenta to red), Red, yellow, green (as on
+traffic maps), Yellow to green, Blue to orange (colorblind-friendly, as it
+changes only between blue and orange, which color vision deficiencies keep
+apart) and Rainbow (blue, cyan, green, yellow, red). The set applies at
+once to every vehicle, also while the simulation runs, and like the other
+display settings it is not kept when the page reloads. With Adapt colors
+to light/dark mode in the panel, on by default, roads and vehicles follow
+the theme together: in light mode the road is lighter (#a3a8ad) and the
+vehicles on it dark, with a contrast of at least 3:1 to the road at every
+speed and 7.5:1 to white, so also on the light map with or without the
+roads; in dark mode the road is darker (#3c4043) and the vehicles light,
+at least 5:1 to the road, also on the inverted dark map. Yellow is ochre
+and olive on the light road, as no yellow is dark enough for 3:1 there.
+The sets in light mode / dark mode, with their least contrast to the road
+of the mode:
+
+| Set | Light mode on #a3a8ad | Dark mode on #3c4043 |
+| --- | --- | --- |
+| Blue, violet, red | #0040dd, #5b00f6, #9400a1, #a50060, #a91100 (3.15:1) | #71bfff, #baafff, #f993ff, #ff98ca, #ff9f8f (5.2:1) |
+| Red, yellow, green | #a60000, #833d00, #5f5000, #375a05, #055e0c (3.3:1) | #ffb1b1, #ffb575, #e9c200, #85db0c, #0ce41e (5.9:1) |
+| Yellow to green | #674b00, #525200, #345900, #025d02, #005b45 (3.4:1) | #fdb900, #cbcb00, #81dc00, #06e406, #00dfa8 (5.9:1) |
+| Blue to orange | #003fd1, #1e518d, #515145, #6b4a13, #833d00 (3.3:1) | #acc5ff, #a9c8ed, #c5c5bb, #e8bf7a, #ffb575 (6.0:1) |
+| Rainbow | #0022fc, #00586f, #085e1d, #595200, #a40b00 (3.3:1) | #b8c2ff, #32d6ff, #12e347, #dac700, #ffb1ac (5.6:1) |
+
+Every set has at least 7.5:1 to white in light mode. The white markings
+have 2.4:1 to the light road and 10:1 to the dark one, the stop bars are
+darker on the light road (#d93025, #f29900, #188038), and the density
+stripes are a bit more opaque on both, darker on the light road and
+lighter on the dark one. Off, the road is the same mid-gray (#5f6368) in
+both themes and the vehicles on it have the colors of dark mode, at least
+3:1, and on the light map with the roads and junctions hidden the colors
+of light mode, for the default set the earlier dark ones (#0d61ff,
+#792cff, #b100bd, #c20080, #cb0e00), at least 5:1 to white. The colors are
+light-dark pairs that the browser resolves for the theme of the editor, so
+a change of the theme repaints nothing, and the legend follows the set,
+the theme, the layers and the checkbox at once. The road of the theme
+stands for the gray asphalt that the styles of roads and junctions have
+(`light-dark(#5f6368,#5f6368)`), also in saved diagrams and loaded towns,
+and other colors in their styles are kept. Like the other display
+settings, the checkbox is not kept when the page reloads.
+
+Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
 there is space, each only if no car is close behind there. With Pass on
@@ -356,8 +382,8 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
 
 Traffic drives on the right in all towns, and turn lanes are not loaded.
 
-Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density,
-in frames per second with all layers, with only the map and the vehicles,
+Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density
+and the heads of the traffic lights, in frames per second with all layers, with only the map and the vehicles,
 and with all layers but the map, in light mode (dark mode is the same
 within a few frames per second):
 
@@ -454,9 +480,11 @@ Then open http://localhost:8000.
 
 ## Debugging
 
-Debug output is on unless the URL has `?dev=0` or the Debug output
-checkbox in the panel is cleared, which keeps the setting in the URL. All
-errors of the page, the editor and the simulation are logged with their
+Debug output is off by default. `?dev=1` or `?test=1` in the URL or the
+Debug output checkbox in the panel turns it on; the checkbox does not
+change the URL and, like the other display settings, is not kept when the
+page reloads, and an old `?dev=0` is removed from the URL when the page
+loads. All errors of the page, the editor and the simulation are logged with their
 stack, also the errors that draw.io catches and shows in a dialog
 (`EditorUi.handleError`, also for uncaught errors). Once a second, the
 simulation writes a summary (cars driving, moving and standing, average
@@ -510,15 +538,15 @@ then writes its own debug messages and has a Develop menu.
   and turned in its direction, filled with the color of its speed. The
   outlines are made once per type and degree, as a new path paints faster
   than a new transform. It never changes the diagram, except for imports.
-  The colors of the speeds are pairs of stops from blue to red, one for
-  light mode against the road of light mode (#a3a8ad) and one for dark
-  mode against the road of dark mode (#3c4043), each at least 3:1 at every
-  step, which become light-dark pairs (`speedStopPairs`); without Adapt
-  colors, both are the light stops on the gray road, except on the light
-  map without the roads (`mapSpeedStops`). Further color sets
-  for the vehicles, such as a choice of sets in the panel, follow this
-  pattern: each set with a light and a dark variant against these roads,
-  and Adapt colors applies to all of them.
+  Each color set of the speeds (`colorSets`) has stops for light mode
+  against the road of light mode (#a3a8ad) and for dark mode against the
+  road of dark mode (#3c4043), each at least 3:1 at every step, which
+  become light-dark pairs; without Adapt colors, both are the stops of dark
+  mode on the gray road, at least 3:1 to it too, except on the light map
+  without the roads (the stops of light mode, or `map`). Further sets
+  follow this pattern. The stop bars are in the overlay with the roads
+  layer, the heads of the traffic lights with the Traffic light heads
+  layer.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
   tag, without history. To update it by hand:
 
