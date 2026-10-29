@@ -54,6 +54,13 @@ are driving.
   their road or, with a line, their junction where they overlap no road,
   junction, traffic light or other label, and are hidden when more than
   400 roads and junctions are in view.
+- Click a vehicle to follow it: a ring and a label with its type and speed
+  drive along with it, its route is colored from its start A to its
+  destination B, and the Vehicle section of the panel shows its data live:
+  type, speed and top speed, start, destination, travel time, distance,
+  waiting time, place and lane, the rest of its route and its reroutes. A
+  click elsewhere ends it. Drags that start on a vehicle edit the diagram
+  as usual, so that the network can change while the vehicle drives.
 - Roads are sharp, rounded or curved like connectors, in the format panel,
   the inline toolbar and the waypoints menu, and their lanes, markings and
   cars follow the waypoints and curves. Rounded corners of roads start at

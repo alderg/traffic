@@ -32,6 +32,8 @@
 	var sim = null;
 	var roads = null;
 	var updateSelection = null;
+	var vehicleSection = document.getElementById('vehicle');
+	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
 
 	/**
@@ -305,6 +307,40 @@
 		if (updateSelection != null)
 		{
 			updateSelection();
+		}
+
+		updateVehicle();
+	};
+
+	/**
+	 * Shows the data of the vehicle that was clicked in the editor.
+	 */
+	function updateVehicle()
+	{
+		var info = (sim != null) ? sim.getVehicle() : null;
+		vehicleSection.hidden = info == null;
+
+		for (var i = 0; info != null && i < info.rows.length; i++)
+		{
+			var row = vehicleRows.rows[i] || vehicleRows.insertRow();
+
+			while (row.cells.length < 2)
+			{
+				row.insertCell();
+			}
+
+			for (var j = 0; j < 2; j++)
+			{
+				if (row.cells[j].textContent != info.rows[i][j])
+				{
+					row.cells[j].textContent = info.rows[i][j];
+				}
+			}
+		}
+
+		while (vehicleRows.rows.length > ((info != null) ? info.rows.length : 0))
+		{
+			vehicleRows.deleteRow(-1);
 		}
 	};
 

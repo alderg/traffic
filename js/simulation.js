@@ -45,15 +45,20 @@
  * painted into the overlay pane, and optionally labels with the cars that
  * are on each road and junction in view, on their way there, and that
  * entered and left. Each link and junction counts its cars for the
- * statistics of the selection (getStats). With debug output, a summary, the
- * links and junctions with cars, the cars that stand longest and the events
- * of the last second (spawns, lane changes, crossings, roundabouts,
- * arrivals, reroutes, phases) go to the console once a second, with a
- * warning if no car moves. The simulation never changes the diagram, only
- * importFile inserts cells. This script runs in the window of the editor
- * after js/roads.js, whose lane geometry it uses: TrafficSimulation(ui,
- * listener) attaches the simulation to the graph of the given EditorUi and
- * calls listener with the lines of the statistics and the running state.
+ * statistics of the selection (getStats). A click on a car selects it: its
+ * route is colored from its start A to its destination B, a ring and a label
+ * follow it, and getVehicle returns its data. The overlay has no pointer
+ * events, so a mouse listener before those of draw.io tests clicks against
+ * the positions of the cars, and drags edit the diagram as usual. With debug
+ * output, a summary, the links and junctions with cars, the cars that stand
+ * longest and the events of the last second (spawns, lane changes,
+ * crossings, roundabouts, arrivals, reroutes, phases) go to the console once
+ * a second, with a warning if no car moves. The simulation never changes the
+ * diagram, only importFile inserts cells. This script runs in the window of
+ * the editor after js/roads.js, whose lane geometry it uses:
+ * TrafficSimulation(ui, listener) attaches the simulation to the graph of
+ * the given EditorUi and calls listener with the lines of the statistics and
+ * the running state.
  */
 window.TrafficSimulation = function(ui, listener)
 {
@@ -108,6 +113,8 @@ window.TrafficSimulation = function(ui, listener)
 	var expected = null;
 	var labels = null;
 	var labelsDirty = true;
+	var focus = null;
+	var press = null;
 	var lastLabels = 0;
 	var lastDebug = 0;
 	var debugSteps = 0;
@@ -509,6 +516,7 @@ window.TrafficSimulation = function(ui, listener)
 		v.index++;
 		this.merged = false;
 		getTally(this).entered++;
+		v.trail.push(this);
 	};
 
 	/**
@@ -1517,6 +1525,10 @@ window.TrafficSimulation = function(ui, listener)
 		this.stopped = 0;
 		this.driven = 0;
 		this.over = 0;
+		this.origin = route[0].from;
+		this.trail = [];
+		this.waited = 0;
+		this.reroutes = 0;
 		this.prevLink = null;
 		this.prevRing = null;
 		this.prevTransit = null;
@@ -2245,6 +2257,12 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		sim.active['delete'](v);
 
+		if (focus != null && focus.v == v && focus.status == null)
+		{
+			focus.status = 'Left the network';
+			focus.end = sim.time;
+		}
+
 		if (v.node != null && v.node.parentNode != null)
 		{
 			v.node.parentNode.removeChild(v.node);
@@ -2281,6 +2299,12 @@ window.TrafficSimulation = function(ui, listener)
 		record('expire', v, {place: getPlace(v), age: sim.time - v.start, dest: v.dest.id});
 		sim.expired++;
 
+		if (focus != null && focus.v == v)
+		{
+			focus.status = 'Did not arrive in its lifetime and left';
+			focus.end = sim.time;
+		}
+
 		if (v.transit != null)
 		{
 			var cars = v.transit.link.transit[v.transit.lane];
@@ -2298,6 +2322,13 @@ window.TrafficSimulation = function(ui, listener)
 	function park(v)
 	{
 		record('arrive', v, {junction: v.dest.id, trip: sim.time - v.start});
+
+		if (focus != null && focus.v == v)
+		{
+			focus.status = 'Arrived at B';
+			focus.end = sim.time;
+		}
+
 		removeActive(v);
 		sim.arrived++;
 		sim.travel += sim.time - v.start;
@@ -2317,6 +2348,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			v.route = route;
 			v.index = 0;
+			v.reroutes++;
 			record('reroute', v, {junction: v.getJunction().id, links: route.length});
 		}
 
@@ -2341,6 +2373,7 @@ window.TrafficSimulation = function(ui, listener)
 			}
 
 			v.stopped = (v.v == 0 && v.transit == null) ? v.stopped + 1 : 0;
+			v.waited += (v.stopped > 0) ? 1 : 0;
 			v.prevLink = v.link;
 			v.prevRing = v.ring;
 			v.prevTransit = v.transit;
@@ -2620,8 +2653,8 @@ window.TrafficSimulation = function(ui, listener)
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
 		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
-			bars: createNode('g', root, {}), cars: createNode('g', root, {}),
-			heads: createNode('g', root, {}), labels: createNode('g', root, {})};
+			route: createNode('g', root, {}), bars: createNode('g', root, {}), cars: createNode('g', root, {}),
+			heads: createNode('g', root, {}), labels: createNode('g', root, {}), focus: createNode('g', root, {})};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
 	};
@@ -2928,6 +2961,8 @@ window.TrafficSimulation = function(ui, listener)
 			v.x = pt.x;
 			v.y = pt.y;
 		});
+
+		paintFocus();
 	};
 
 	/**
@@ -3785,6 +3820,8 @@ window.TrafficSimulation = function(ui, listener)
 			sim.active.forEach(removeActive);
 		}
 
+		selectVehicle(null);
+
 		sim = createSim();
 		net = null;
 		rebuild();
@@ -4059,6 +4096,410 @@ window.TrafficSimulation = function(ui, listener)
 	mxEvent.addListener(window, 'resize', viewChanged);
 
 	/**
+	 * Returns the given point in graph coordinates in model coordinates.
+	 */
+	function getModelPoint(x, y)
+	{
+		var s = graph.view.scale;
+		var t = graph.view.translate;
+
+		return new mxPoint(x / s - t.x, y / s - t.y);
+	};
+
+	/**
+	 * Returns the car that is painted nearest to the given point in model
+	 * coordinates within a few pixels, or null.
+	 */
+	function findVehicle(pt)
+	{
+		var best = Math.pow(getSize(0.6, 8), 2);
+		var result = null;
+
+		if (sim != null && overlay != null)
+		{
+			sim.active.forEach(function(v)
+			{
+				var d = (v.x != null) ? (v.x - pt.x) * (v.x - pt.x) + (v.y - pt.y) * (v.y - pt.y) : Infinity;
+
+				if (d < best)
+				{
+					best = d;
+					result = v;
+				}
+			});
+		}
+
+		return result;
+	};
+
+	/**
+	 * Returns true if the given mouse event is on a handle of a selected
+	 * cell, so that cars under it do not take the click.
+	 */
+	function isHandleEvent(me)
+	{
+		var cells = graph.getSelectionCells();
+
+		for (var i = 0; i < cells.length; i++)
+		{
+			var handler = graph.selectionCellsHandler.getHandler(cells[i]);
+
+			if (handler != null && handler.getHandleForEvent != null && handler.getHandleForEvent(me) != null)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	};
+
+	/**
+	 * Selects the given car, or none if it is null: highlights it with a
+	 * label that drives along, colors its route from its start A to its
+	 * destination B and clears the selection of the diagram.
+	 */
+	function selectVehicle(v)
+	{
+		if (overlay != null)
+		{
+			clearChildren(overlay.route);
+			clearChildren(overlay.focus);
+		}
+
+		focus = null;
+
+		if (v != null && overlay != null)
+		{
+			var stroke = 'light-dark(#1a73e8,#8ab4f8)';
+			focus = {v: v, status: null, end: 0, key: null, net: null, dest: v.dest};
+			focus.trail = createNode('path', overlay.route, {fill: 'none', 'stroke-linecap': 'round',
+				'stroke-linejoin': 'round', 'stroke-opacity': '0.4'});
+			focus.ahead = createNode('path', overlay.route, {fill: 'none', 'stroke-linecap': 'round',
+				'stroke-linejoin': 'round', 'stroke-opacity': '0.75'});
+			focus.trail.style.stroke = stroke;
+			focus.ahead.style.stroke = stroke;
+			focus.markers = [createMarker('A', '#188038'), createMarker('B', '#d93025')];
+			focus.ring = createNode('circle', overlay.focus, {fill: 'none'});
+			focus.ring.style.stroke = stroke;
+			focus.line = createNode('line', overlay.focus, {});
+			focus.line.style.stroke = stroke;
+			focus.label = createNode('g', overlay.focus, {});
+			focus.box = createNode('rect', focus.label, {x: 0, y: 0, height: 18, rx: 4});
+			focus.box.style.fill = 'light-dark(#ffffff,#202124)';
+			focus.box.style.stroke = stroke;
+			focus.text = createNode('text', focus.label, {x: 6, y: 13, 'font-size': 11,
+				'font-family': 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif'});
+			focus.text.style.fill = 'light-dark(#1f2328,#e6e7e9)';
+			focus.text.style.fontVariantNumeric = 'tabular-nums';
+
+			// Paints the car on top of the others
+			overlay.cars.appendChild(v.node);
+			graph.clearSelection();
+			paintFocus();
+		}
+
+		if (sim != null && net != null)
+		{
+			updateStats();
+		}
+	};
+
+	/**
+	 * Returns a marker for the start or destination of the selected car with
+	 * the given letter and color.
+	 */
+	function createMarker(letter, color)
+	{
+		var g = createNode('g', overlay.route, {});
+		createNode('circle', g, {r: 9, fill: color, stroke: '#ffffff', 'stroke-width': 1.5});
+		var text = createNode('text', g, {y: 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 'bold',
+			fill: '#ffffff', 'font-family': 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif'});
+		text.textContent = letter;
+
+		return g;
+	};
+
+	/**
+	 * Returns the points of the middle lane of the given link, of the link
+	 * with the same key in the current network.
+	 */
+	function getLanePoints(link)
+	{
+		link = net.linkMap.get(link.key) || link;
+
+		return link.paths[Math.floor((link.paths.length - 1) / 2)];
+	};
+
+	/**
+	 * Returns the SVG path of the given points.
+	 */
+	function getPathData(pts)
+	{
+		var d = [];
+
+		for (var i = 0; i < pts.length; i++)
+		{
+			d.push(((i == 0) ? 'M' : 'L') + Math.round(pts[i].x * 10) / 10 + ' ' + Math.round(pts[i].y * 10) / 10);
+		}
+
+		return (d.length > 1) ? d.join(' ') : '';
+	};
+
+	/**
+	 * Paints the route of the selected car, behind it and ahead, with its
+	 * start and destination, and the ring and the label that follow it.
+	 */
+	function paintFocus()
+	{
+		if (focus == null)
+		{
+			return;
+		}
+
+		var v = focus.v;
+		var s = graph.view.scale;
+		var gone = focus.status != null;
+		var key = [s, v.index, v.route.length, v.cell, v.lane, v.ringLane,
+			v.link != null, v.transit != null, v.ring != null, gone].join(',');
+
+		// Keeps the destination if it was removed
+		focus.dest = v.dest || focus.dest;
+
+		if ((key != focus.key || focus.net != net) && net.links.length > 0)
+		{
+			focus.key = key;
+			focus.net = net;
+			var behind = [];
+			var ahead = [];
+			var trail = (v.link != null && !gone) ? v.trail.slice(0, v.trail.length - 1) : v.trail;
+
+			for (var i = 0; i < trail.length; i++)
+			{
+				behind = behind.concat(getLanePoints(trail[i]).points);
+			}
+
+			if (!gone)
+			{
+				// Splits the lane of the car at the car
+				if (v.link != null)
+				{
+					var path = v.link.paths[v.lane];
+					var pos = (v.cell + 0.5) / (v.link.out + 1) * path.lengths[path.lengths.length - 1];
+					var pt = v.link.getPoint(v.lane, v.cell);
+					var i = 0;
+
+					while (i < path.points.length && path.lengths[i] < pos)
+					{
+						behind.push(path.points[i++]);
+					}
+
+					behind.push(pt);
+					ahead.push(pt);
+
+					while (i < path.points.length)
+					{
+						ahead.push(path.points[i++]);
+					}
+				}
+				else
+				{
+					var pt = v.getPoint(false);
+					behind.push(pt);
+					ahead.push(pt);
+				}
+
+				for (var i = v.index; i < v.route.length; i++)
+				{
+					ahead = ahead.concat(getLanePoints(v.route[i]).points);
+				}
+			}
+
+			var w = getSize(0.6, 5);
+			focus.trail.setAttribute('d', getPathData(behind));
+			focus.trail.setAttribute('stroke-width', w);
+			focus.ahead.setAttribute('d', getPathData(ahead));
+			focus.ahead.setAttribute('stroke-width', w);
+
+			var ends = [net.crossingMap.get(v.origin.id) || v.origin, net.crossingMap.get(focus.dest.id) || focus.dest];
+
+			for (var i = 0; i < 2; i++)
+			{
+				focus.markers[i].setAttribute('transform', 'translate(' + ends[i].x + ',' + ends[i].y +
+					') scale(' + (1 / s) + ')');
+			}
+		}
+
+		focus.ring.style.display = (gone) ? 'none' : '';
+		focus.line.style.display = focus.ring.style.display;
+		focus.label.style.display = focus.ring.style.display;
+
+		if (!gone && v.x != null)
+		{
+			var r = getSize(0.7, 8);
+			var lx = v.x + 14 / s;
+			var ly = v.y - 14 / s;
+			var text = getTypeName(v) + ' · ' + Math.round(getKmh(v)) + ' km/h';
+			focus.ring.setAttribute('cx', v.x);
+			focus.ring.setAttribute('cy', v.y);
+			focus.ring.setAttribute('r', r);
+			focus.ring.setAttribute('stroke-width', 2 / s);
+			focus.line.setAttribute('x1', v.x + r * 0.7071);
+			focus.line.setAttribute('y1', v.y - r * 0.7071);
+			focus.line.setAttribute('x2', lx);
+			focus.line.setAttribute('y2', ly);
+			focus.line.setAttribute('stroke-width', 1.5 / s);
+			focus.label.setAttribute('transform', 'translate(' + lx + ',' + (ly - 18 / s) + ') scale(' + (1 / s) + ')');
+
+			if (focus.text.textContent != text)
+			{
+				focus.text.textContent = text;
+				focus.box.setAttribute('width', Math.ceil(0.55 * 11 * text.length) + 12);
+			}
+		}
+	};
+
+	/**
+	 * Returns the name of the type of the given car.
+	 */
+	function getTypeName(v)
+	{
+		return (v.type.name == 'truck') ? 'Truck' : ((v.type.name == 'fast') ? 'Fast car' : 'Car');
+	};
+
+	/**
+	 * Returns the speed of the given car in km/h, one cell per step through
+	 * crossings other than joints.
+	 */
+	function getKmh(v)
+	{
+		return 3.6 * cellLength * ((v.transit != null && !v.transit.link.from.joint) ? 1 : v.v);
+	};
+
+	/**
+	 * Returns the name of the given junction for the panel.
+	 */
+	function getJunctionName(junction)
+	{
+		var type = (junction.rings != null) ? 'roundabout' : ((junction.phases != null) ? 'traffic light' :
+			((junction.id.substring(0, 4) == 'end:') ? 'free end' : ((junction.joint) ? 'joint' : 'crossing')));
+
+		return type + ' ' + ((junction.id.substring(0, 4) == 'end:') ? junction.id.substring(4) : junction.id);
+	};
+
+	/**
+	 * Returns the data of the selected car as rows of a name and a value, or
+	 * null if no car is selected.
+	 */
+	function getVehicle()
+	{
+		if (focus == null || sim == null || net == null)
+		{
+			return null;
+		}
+
+		var v = focus.v;
+		var gone = focus.status != null;
+		var time = (gone) ? focus.end : sim.time;
+		var rows = [['Vehicle', getTypeName(v) + ' ' + v.id]];
+		rows.push(['Status', (gone) ? focus.status : ((v.stopped > 0) ? 'Standing for ' + v.stopped + ' s' : 'Driving')]);
+
+		if (!gone)
+		{
+			rows.push(['Speed', Math.round(getKmh(v)) + ' of ' + Math.round(3.6 * cellLength * getTopSpeed(v)) + ' km/h']);
+		}
+
+		rows.push(['Start', 'A, ' + getJunctionName(v.origin) + ' at ' + formatTime(v.start)]);
+		rows.push(['Destination', 'B, ' + getJunctionName(focus.dest)]);
+		rows.push(['Travel time', formatTime(time - v.start)]);
+		rows.push(['Distance', (v.driven * cellLength / 1000).toFixed(2) + ' km']);
+		rows.push(['Waiting', formatTime(v.waited)]);
+
+		if (!gone)
+		{
+			var place = (v.transit != null) ? getJunctionName(v.transit.link.from) :
+				((v.ring != null) ? getJunctionName(v.ring) + ', ring lane ' + (v.ringLane + 1) +
+				' of ' + v.ring.rings.length : 'road ' + v.link.key.substring(0, v.link.key.length - 1) +
+				((v.link.key.charAt(v.link.key.length - 1) == '>') ? ' forward' : ' backward') +
+				', lane ' + (v.lane + 1) + ' of ' + v.link.cells.length);
+			var cells = (v.link != null) ? v.link.out - v.cell : 0;
+
+			for (var i = v.index; i < v.route.length; i++)
+			{
+				cells += v.route[i].out + 1;
+			}
+
+			rows.push(['Place', place]);
+			rows.push(['Route left', formatCount(v.route.length - v.index, 'road') + ', ' +
+				(cells * cellLength / 1000).toFixed(2) + ' km']);
+			rows.push(['Reroutes', String(v.reroutes)]);
+			rows.push(['Leaves in', formatTime(Math.max(0, v.end - sim.time)) + ' if not arrived']);
+		}
+
+		return {rows: rows, active: !gone};
+	};
+
+	// Clicks on cars select them and other clicks clear the selected car,
+	// while drags edit the diagram as usual. The cars are painted without
+	// pointer events, so clicks are tested against their positions before
+	// the handlers of draw.io get them.
+	graph.addMouseListener({
+		mouseDown: roads.guard(function(sender, me)
+		{
+			var evt = me.getEvent();
+			press = null;
+
+			if (!me.isConsumed() && (mxEvent.isLeftMouseButton(evt) || mxEvent.isTouchEvent(evt)) &&
+				!mxEvent.isMultiTouchEvent(evt) && !isHandleEvent(me))
+			{
+				press = {v: findVehicle(getModelPoint(me.getGraphX(), me.getGraphY())),
+					x: me.getGraphX(), y: me.getGraphY()};
+			}
+		}, 'simulation mouse down'),
+		mouseMove: function(sender, me)
+		{
+			// Ignores the move
+		},
+		mouseUp: roads.guard(function(sender, me)
+		{
+			if (press != null && Math.abs(me.getGraphX() - press.x) <= graph.tolerance &&
+				Math.abs(me.getGraphY() - press.y) <= graph.tolerance)
+			{
+				if (press.v != null && sim.active.has(press.v))
+				{
+					me.consume();
+					selectVehicle(press.v);
+				}
+				else if (focus != null)
+				{
+					selectVehicle(null);
+				}
+			}
+
+			press = null;
+		}, 'simulation mouse up')
+	});
+
+	graph.mouseListeners.unshift(graph.mouseListeners.pop());
+
+	// Double clicks on cars do not edit the road under them
+	var dblClick = graph.dblClick;
+
+	graph.dblClick = function(evt, cell)
+	{
+		var pt = (evt != null) ? mxUtils.convertPoint(graph.container,
+			mxEvent.getClientX(evt), mxEvent.getClientY(evt)) : null;
+
+		if (pt != null && findVehicle(getModelPoint(pt.x, pt.y)) != null)
+		{
+			mxEvent.consume(evt);
+		}
+		else
+		{
+			dblClick.apply(this, arguments);
+		}
+	};
+
+	/**
 	 * Returns the timing of the traffic light with the given ID in steps:
 	 * the number of approach axes, green, yellow and the cycle, or null.
 	 */
@@ -4226,5 +4667,6 @@ window.TrafficSimulation = function(ui, listener)
 
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
-		importFile: importFile, getLight: getLight, getStats: getStats, setDebug: setDebug};
+		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
+		selectVehicle: selectVehicle, setDebug: setDebug};
 };

@@ -36,6 +36,12 @@
 	<section>
 		<div id="stats" class="stats">Loading the editor…</div>
 	</section>
+	<section id="vehicle" hidden>
+		<h2>Vehicle</h2>
+		<table class="cell-stats vehicle-info"><tbody></tbody></table>
+		<p class="hint">Its route is colored from its start A to its destination B. Click another
+			vehicle to follow it, or elsewhere to stop.</p>
+	</section>
 	<section id="selection">
 		<h2>Selection</h2>
 		<p id="selection-hint" class="hint">Select a junction or a road to change it.</p>
@@ -101,6 +107,7 @@
 			<li>Select a junction or a road to change its type, green time and ring lanes, or the direction and turns of each lane, under Selection.</li>
 			<li>A road with one arrow is a one-way road, one with no or two arrows a road in both directions. <code>lanes=2</code> in its style sets the lanes per direction.</li>
 			<li>Traffic lights give each approach axis 10 seconds of green (<code>trafficLight=10</code>), then 3 seconds of yellow.</li>
+			<li>Click a vehicle to see its route from A to B and its data, and click elsewhere to stop.</li>
 			<li>1 unit is 1 meter and 1 step is 1 second.</li>
 		</ul>
 	</section>

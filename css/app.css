@@ -178,6 +178,16 @@ select, input[type="number"] {
 	border-bottom: 1px solid var(--border);
 }
 
+.vehicle-info td {
+	white-space: normal;
+	vertical-align: top;
+}
+
+.vehicle-info td:last-child {
+	text-align: left;
+	overflow-wrap: anywhere;
+}
+
 .hint {
 	margin: 0 0 8px;
 	font-size: 12px;
