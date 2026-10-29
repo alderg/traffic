@@ -2190,8 +2190,11 @@
 
 		var fn = function()
 		{
-			ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
-			fitDiagram();
+			drawOutsideDocument(function()
+			{
+				ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
+				fitDiagram();
+			});
 
 			if (onLoad != null)
 			{
@@ -2207,6 +2210,75 @@
 		else
 		{
 			fn();
+		}
+	};
+
+	/**
+	 * Calls fn, which opens or fits the diagram, with the shapes drawn outside
+	 * of the document, and puts them into it at once after fn. A town draws
+	 * more than 100,000 SVG elements in one task, twice with fitting it, and
+	 * mutation observers get all changes of a task in one call: content
+	 * scripts of browser extensions that watch pages failed with "Maximum
+	 * call stack size exceeded" on the 230,000 changes of opening Northampton.
+	 * Like the print preview of draw.io (mxPrintPreview.addGraphFragment), fn
+	 * draws into a copy of the draw pane, here in an SVG of its own, as
+	 * draw.io draws HTML instead of SVG into panes that are not in an SVG.
+	 * Elements that draw.io adds to that SVG, eg. gradients, go to the SVG of
+	 * the diagram after fn.
+	 */
+	function drawOutsideDocument(fn)
+	{
+		var view = ui.editor.graph.view;
+		var pane = view.getDrawPane();
+		var svg = pane.ownerSVGElement;
+
+		if (svg == null)
+		{
+			fn();
+
+			return;
+		}
+
+		var outside = svg.ownerDocument.createElementNS(svg.namespaceURI, 'svg');
+		var copy = outside.appendChild(pane.cloneNode(false));
+
+		// The size of the view and the scrolling apply to the SVG of the diagram
+		Object.defineProperty(copy, 'ownerSVGElement', {value: svg, configurable: true});
+		view.drawPane = copy;
+
+		// The old shapes leave the document at once
+		pane.textContent = '';
+
+		try
+		{
+			fn();
+		}
+		finally
+		{
+			delete copy.ownerSVGElement;
+			pane.parentNode.replaceChild(copy, pane);
+
+			while (outside.firstChild != null)
+			{
+				svg.appendChild(outside.firstChild);
+			}
+
+			// Labels and curved edges are measured in the document, in the
+			// graph bounds of the next validation
+			view.states.visit(function(id, state)
+			{
+				if (state.text != null)
+				{
+					state.text.invalidateBoundingBox();
+				}
+
+				if (state.shape != null && state.shape.useSvgBoundingBox)
+				{
+					state.shape.invalidateBoundingBox();
+				}
+			});
+
+			view.validate();
 		}
 	};
 

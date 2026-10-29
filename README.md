@@ -780,6 +780,16 @@ then writes its own debug messages and has a Develop menu.
   and jobs of the zones on their junctions, which the page opens like the
   examples (see [Loading Your Town](#loading-your-town)). It runs in the
   page, not in the editor, and in Node for `tools/osm2drawio.js`.
+- `openFile` in `js/app.js` opens towns and examples with
+  `EditorUi.fileLoaded` and fits them while the shapes are drawn into a
+  copy of the draw pane outside of the document, which then replaces the
+  pane (`drawOutsideDocument`). The document changes once instead of
+  230,000 times for Northampton (3,565 junctions), whose 89,676 SVG
+  elements are drawn twice, once to open and once to fit. Mutation
+  observers get all changes of a task in one call, and content scripts of
+  browser extensions that watch pages failed on that many with "Maximum
+  call stack size exceeded". It also opens faster: 1.7 instead of 2.4 s in
+  `fileLoaded` for Northampton on 2026-10-29, with the same drawing.
 - `js/map.js` runs in the editor and shows the map and the notice of
   OpenStreetMap behind and on towns (see [Map Background](#map-background)).
 - `js/simulation.js` builds the network from the cells of the current page,
