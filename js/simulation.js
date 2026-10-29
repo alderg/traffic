@@ -1389,7 +1389,8 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Returns the points of the given edge state in model coordinates, along
-	 * the painted curve for curved edges.
+	 * the painted curve for curved edges and around the corners for rounded
+	 * edges.
 	 */
 	function getModelPoints(state)
 	{
@@ -1408,13 +1409,7 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		if ((style[mxConstants.STYLE_CURVED] == 1 || style[mxConstants.STYLE_BEZIER] == 1) &&
-			(Graph.edgeSupportsCurved(style) || style[mxConstants.STYLE_SHAPE] == 'road'))
-		{
-			model = Graph.getCurvePoints(model, style[mxConstants.STYLE_BEZIER] == 1);
-		}
-
-		return roads.getPath(model, {});
+		return roads.getPath(model, style);
 	};
 
 	/**

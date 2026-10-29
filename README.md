@@ -41,8 +41,11 @@ are driving.
   the lanes per direction and direction of roads, and for one road each
   lane with its direction and turns. Changes apply at once, also while
   cars are driving, and can be undone.
-- 1 unit is 1 meter and 1 step is 1 second. Curved connectors and
-  waypoints are followed.
+- Roads are sharp, rounded or curved like connectors, in the format panel,
+  the inline toolbar and the waypoints menu, and their lanes, markings and
+  cars follow the waypoints and curves. Rounded corners of roads start at
+  least as far from the corner as the road is wide.
+- 1 unit is 1 meter and 1 step is 1 second.
 
 Changes to the diagram take effect while the simulation is running. Cars on
 removed roads leave, the others keep their routes or look for new ones.

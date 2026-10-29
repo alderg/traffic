@@ -22,7 +22,7 @@
  * lines, dashed lane dividers, a dashed center line (solid double line with
  * more lanes), arrows on the lanes of one-way roads, turn arrows before the
  * end of lanes with turns, stop lines at traffic lights and give-way lines
- * at roundabouts.
+ * at roundabouts. Roads can be sharp, rounded or curved like connectors.
  *
  * A roundabout is a shape with shape=roundabout: a ring road with lanes on
  * the outside and a central island in islandColor. Traffic circulates
@@ -405,6 +405,16 @@ window.TrafficRoads = function(ui)
 	};
 
 	mxCellRenderer.registerShape('road', RoadShape);
+
+	// Roads can be curved and rounded like connectors, in the format panel,
+	// the waypoints menu and the inline toolbar
+	var edgeSupportsCurved = Graph.edgeSupportsCurved;
+
+	Graph.edgeSupportsCurved = function(style)
+	{
+		return mxUtils.getValue(style, mxConstants.STYLE_SHAPE, null) == 'road' ||
+			edgeSupportsCurved.apply(this, arguments);
+	};
 
 	function RoundaboutShape()
 	{
@@ -1584,27 +1594,96 @@ TrafficRoads.getRing = function(style, w, h)
 };
 
 /**
- * Returns the points of the painted line, along the curve for curved roads,
- * without repeated points.
+ * Returns the points of the painted line of an edge with the given style
+ * and points, along the curve for curved edges and around the corners for
+ * rounded edges, without repeated points.
  */
 TrafficRoads.getPath = function(pts, style)
 {
-	var result = [];
-
-	if ((style[mxConstants.STYLE_CURVED] == 1 || style[mxConstants.STYLE_BEZIER] == 1) &&
-		Graph.getCurvePoints != null && pts.length > 2)
+	function unique(pts)
 	{
-		pts = Graph.getCurvePoints(pts, style[mxConstants.STYLE_BEZIER] == 1);
-	}
+		var result = [];
 
-	for (var i = 0; i < pts.length; i++)
-	{
-		if (pts[i] != null && (result.length == 0 ||
-			TrafficRoads.getDistance(result[result.length - 1], pts[i]) > 0.01))
+		for (var i = 0; i < pts.length; i++)
 		{
-			result.push(pts[i]);
+			if (pts[i] != null && (result.length == 0 ||
+				TrafficRoads.getDistance(result[result.length - 1], pts[i]) > 0.01))
+			{
+				result.push(pts[i]);
+			}
+		}
+
+		return result;
+	};
+
+	var result = unique(pts);
+	var shape = mxUtils.getValue(style, mxConstants.STYLE_SHAPE, null);
+
+	if (result.length > 2 && (shape == 'road' || Graph.edgeSupportsCurved(style)))
+	{
+		if (style[mxConstants.STYLE_CURVED] == 1 || style[mxConstants.STYLE_BEZIER] == 1)
+		{
+			result = unique(Graph.getCurvePoints(result, style[mxConstants.STYLE_BEZIER] == 1));
+		}
+		else if (style[mxConstants.STYLE_ROUNDED] == 1 && (shape == null ||
+			shape == 'road' || shape == mxConstants.SHAPE_CONNECTOR))
+		{
+			result = unique(TrafficRoads.getRoundedPoints(result, TrafficRoads.getArcSize(style)));
 		}
 	}
+
+	return result;
+};
+
+/**
+ * Returns the distance from the corners where rounded corners of edges
+ * with the given style start, as in mxPolyline, and at least the width of
+ * roads, so that their lanes have curves.
+ */
+TrafficRoads.getArcSize = function(style)
+{
+	var arc = parseFloat(mxUtils.getValue(style, mxConstants.STYLE_ARCSIZE, mxConstants.LINE_ARCSIZE)) / 2;
+	arc = (isNaN(arc)) ? mxConstants.LINE_ARCSIZE / 2 : arc;
+
+	return (mxUtils.getValue(style, mxConstants.STYLE_SHAPE, null) == 'road') ?
+		Math.max(arc, TrafficRoads.getRoadWidth(style)) : arc;
+};
+
+/**
+ * Returns the given points with the corners replaced by points along
+ * quadratic curves that start the given distance before the corners, as
+ * mxShape.addPoints paints them.
+ */
+TrafficRoads.getRoundedPoints = function(pts, arc)
+{
+	var steps = 16;
+	var result = [pts[0]];
+	var pt = pts[0];
+
+	for (var i = 1; i < pts.length - 1; i++)
+	{
+		var tmp = pts[i];
+		var next = pts[i + 1];
+		var d0 = TrafficRoads.getDistance(pt, tmp);
+		var d1 = TrafficRoads.getDistance(tmp, next);
+		var a0 = Math.min(arc, d0 / 2) / d0;
+		var a1 = Math.min(arc, d1 / 2) / d1;
+		var p0 = new mxPoint(tmp.x + (pt.x - tmp.x) * a0, tmp.y + (pt.y - tmp.y) * a0);
+		var p1 = new mxPoint(tmp.x + (next.x - tmp.x) * a1, tmp.y + (next.y - tmp.y) * a1);
+		result.push(p0);
+
+		for (var t = 1; t <= steps; t++)
+		{
+			var u = t / steps;
+			var iu = 1 - u;
+			result.push(new mxPoint(iu * iu * p0.x + 2 * iu * u * tmp.x + u * u * p1.x,
+				iu * iu * p0.y + 2 * iu * u * tmp.y + u * u * p1.y));
+		}
+
+		pt = p1;
+	}
+
+	result.push(pts[pts.length - 1]);
 
 	return result;
 };
