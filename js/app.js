@@ -2137,7 +2137,16 @@
 			});
 		};
 
-		return {loadFromUrl: loadFromUrl, clear: function()
+		return {loadFromUrl: loadFromUrl, cancel: function()
+		{
+			var t = task;
+
+			if (t != null)
+			{
+				t.abort();
+				endTask(t);
+			}
+		}, clear: function()
 		{
 			loaded = null;
 			linkButton.disabled = true;
@@ -2203,6 +2212,12 @@
 
 	function openExample(name, keepTown)
 	{
+		// A town that is still loading would replace the example
+		if (town != null && !keepTown)
+		{
+			town.cancel();
+		}
+
 		fetch('data/' + name + '.drawio').then(function(response)
 		{
 			if (!response.ok)
