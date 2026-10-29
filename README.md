@@ -31,6 +31,8 @@ are driving.
 - A roundabout (`shape=roundabout`) is a ring road where traffic circulates
   counterclockwise, with 1 to 3 lanes (`lanes`). Cars give way to the ring
   when they enter.
+- Ends of roads that are dragged or dropped within 8 units of a crossing
+  connect to it, so that the small crossings are easy to hit.
 - Free ends of roads join the junction they are on or other free ends
   nearby, else cars can start and end there.
 - The Selection section of the panel shows the selected junctions and

@@ -33,8 +33,10 @@
  * lights 3 units farther for a small icon in the center, and the crossing
  * is painted as the asphalt between the ends of its roads, with rounded
  * corners and edge lines that continue the edges of the roads. The bounds
- * stay the area for selecting and connecting crossings. Junctions have no
- * fixed connection points, roads always connect to their outline.
+ * stay the area for selecting crossings. For connecting, crossings take
+ * roads within connectPadding around their bounds, so that the small
+ * crossings are easy to hit, without changing how they look. Junctions have
+ * no fixed connection points, roads always connect to their outline.
  *
  * Default colors are light-dark pairs with the same color on both sides, so
  * that the dark mode of the editor does not invert them. Other draw.io apps
@@ -769,6 +771,128 @@ window.TrafficRoads = function(ui)
 			new mxConnectionConstraint(null, false) : getConnectionConstraint.apply(this, arguments);
 	};
 
+	/**
+	 * Returns true if the given point in screen coordinates is within the
+	 * bounds of the given state grown by connectPadding.
+	 */
+	function isNear(state, x, y)
+	{
+		var pad = roads.connectPadding * state.view.scale;
+
+		return x >= state.x - pad && x <= state.x + state.width + pad &&
+			y >= state.y - pad && y <= state.y + state.height + pad;
+	};
+
+	/**
+	 * Returns the cell of the crossing near the given point in screen
+	 * coordinates, the nearest if there are several, other than the given
+	 * cell, or null.
+	 */
+	function findCrossingAt(x, y, ignore)
+	{
+		var result = null;
+		var best = Infinity;
+
+		graph.view.states.visit(function(key, state)
+		{
+			if (state.cell != ignore && graph.model.isVertex(state.cell) &&
+				roads.isCrossing(state.style) && isNear(state, x, y))
+			{
+				var d = Math.abs(state.getCenterX() - x) + Math.abs(state.getCenterY() - y);
+
+				if (d < best)
+				{
+					best = d;
+					result = state.cell;
+				}
+			}
+		});
+
+		return result;
+	};
+
+	/**
+	 * Lets the given marker of a handler that connects roads find crossings
+	 * near the mouse, also over roads, except the cell that the given
+	 * function returns, while the given function returns true.
+	 */
+	function padMarker(marker, getIgnored, isConnecting)
+	{
+		var getCell = marker.getCell;
+		var intersects = marker.intersects;
+
+		marker.getCell = function(me)
+		{
+			var cell = getCell.apply(this, arguments);
+
+			return ((cell == null || !graph.model.isVertex(cell)) && isConnecting()) ?
+				(findCrossingAt(me.getGraphX(), me.getGraphY(), getIgnored()) || cell) : cell;
+		};
+
+		marker.intersects = function(state, me)
+		{
+			return (roads.isCrossing(state.style) && isConnecting()) ?
+				isNear(state, me.getGraphX(), me.getGraphY()) : intersects.apply(this, arguments);
+		};
+	};
+
+	// New roads from the arrows of junctions, not back to their own junction,
+	// only while connecting, as the marker finds the source of a click too
+	padMarker(graph.connectionHandler.marker, function()
+	{
+		var source = graph.connectionHandler.previous;
+
+		return (source != null) ? source.cell : null;
+	}, function()
+	{
+		return graph.connectionHandler.isConnecting();
+	});
+
+	var updateCurrentState = graph.connectionHandler.updateCurrentState;
+
+	/**
+	 * Keeps the crossing near the mouse as the target, which outline connect
+	 * drops if the mouse is not over it.
+	 */
+	graph.connectionHandler.updateCurrentState = function(me, point)
+	{
+		updateCurrentState.apply(this, arguments);
+		var state = this.marker.getValidState();
+
+		if (this.currentState == null && this.error == null && this.isConnecting() && state != null &&
+			roads.isCrossing(state.style) && isNear(state, me.getGraphX(), me.getGraphY()))
+		{
+			this.currentState = state;
+
+			if (this.marker.highlight != null && this.marker.highlight.shape != null)
+			{
+				this.marker.highlight.shape.stroke = mxConstants.DEFAULT_VALID_COLOR;
+				this.marker.highlight.repaint();
+			}
+		}
+	};
+
+	// Ends of roads that are dragged, not to the junction at their other end
+	var createMarker = mxEdgeHandler.prototype.createMarker;
+
+	mxEdgeHandler.prototype.createMarker = function()
+	{
+		var marker = createMarker.apply(this, arguments);
+		var handler = this;
+
+		padMarker(marker, function()
+		{
+			var other = handler.state.getVisibleTerminalState(!handler.isSource);
+
+			return (other != null) ? other.cell : null;
+		}, function()
+		{
+			return handler.isSource || handler.isTarget;
+		});
+
+		return marker;
+	};
+
 	var getPerimeterFunction = graph.view.getPerimeterFunction;
 
 	/**
@@ -1217,9 +1341,15 @@ TrafficRoads.island = 'light-dark(#a8d5a0,#2f5d2a)';
 TrafficRoads.laneWidth = 7;
 
 /**
+ * Distance in units around the bounds of crossings within which ends of
+ * roads connect to them when they are dragged or dropped.
+ */
+TrafficRoads.connectPadding = 8;
+
+/**
  * Distance in units within which the free end of a road joins a junction.
  */
-TrafficRoads.snapDistance = 6;
+TrafficRoads.snapDistance = 8;
 
 /**
  * Returns 1 for arrows from source to target, -1 for the opposite
