@@ -3,7 +3,7 @@
  */
 /**
  * Traffic simulation on a draw.io diagram, a port of sim.traffic (Gaudenz
- * Alder, ETH Zurich, 2000).
+ * Alder, 2000).
  *
  * Connectors are roads and the shapes they connect are junctions. Each road
  * has lanes from left to right in its drawn direction, each from source to
