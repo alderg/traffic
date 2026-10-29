@@ -19,6 +19,8 @@
 	var stats = document.getElementById('stats');
 	var ui = null;
 	var sim = null;
+	var roads = null;
+	var updateCycle = null;
 
 	function addOptions(select, values, labels)
 	{
@@ -90,10 +92,11 @@
 		loadScripts(['js/roads.js', 'js/simulation.js'], function()
 		{
 			ui = editorUi;
-			win.TrafficRoads(ui);
+			roads = win.TrafficRoads(ui);
 			keepFormatPanelClosed();
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
+			initSelection();
 			sim.start();
 
 			if (ui.isDiagramEmpty())
@@ -159,6 +162,139 @@
 	{
 		stats.textContent = lines.join('\n');
 		startButton.textContent = (running) ? 'Pause' : 'Start';
+
+		// The timing of a light follows from the network after changes
+		if (updateCycle != null)
+		{
+			updateCycle();
+		}
+	};
+
+	/**
+	 * Shows the junctions and roads of the selection of the editor in the
+	 * panel and changes them when the fields are changed.
+	 */
+	function initSelection()
+	{
+		var win = frame.contentWindow;
+		var graph = ui.editor.graph;
+		var hint = document.getElementById('selection-hint');
+		var junctionFields = document.getElementById('junction-fields');
+		var lightFields = document.getElementById('light-fields');
+		var roadFields = document.getElementById('road-fields');
+		var type = document.getElementById('junction-type');
+		var green = document.getElementById('green');
+		var cycle = document.getElementById('cycle');
+		var lanes = document.getElementById('lanes');
+		var direction = document.getElementById('direction');
+		var junctions = [];
+		var edges = [];
+
+		function count(n, name)
+		{
+			return n + ' ' + name + ((n == 1) ? '' : 's');
+		};
+
+		updateCycle = function()
+		{
+			var light = (junctions.length > 0) ? sim.getLight(junctions[0].id) : null;
+			var text = (light != null) ? 'Green ' + light.green + ' s, yellow ' + light.yellow +
+				' s and red ' + (light.cycle - light.green - light.yellow) + ' s per approach, cycle ' +
+				light.cycle + ' s.' : 'Connect roads to the traffic light.';
+
+			if (cycle.textContent != text)
+			{
+				cycle.textContent = text;
+			}
+		};
+
+		function show()
+		{
+			var cells = graph.getSelectionCells();
+			junctions = [];
+			edges = [];
+
+			for (var i = 0; i < cells.length; i++)
+			{
+				if (graph.model.isVertex(cells[i]))
+				{
+					junctions.push(cells[i]);
+				}
+				else if (graph.model.isEdge(cells[i]))
+				{
+					edges.push(cells[i]);
+				}
+			}
+
+			var names = [];
+
+			if (junctions.length > 0)
+			{
+				names.push(count(junctions.length, 'junction'));
+			}
+
+			if (edges.length > 0)
+			{
+				names.push(count(edges.length, 'road'));
+			}
+
+			hint.textContent = (names.length > 0) ? names.join(', ') + ' selected.' :
+				'Select a junction or a road to change it.';
+			junctionFields.hidden = junctions.length == 0;
+			roadFields.hidden = edges.length == 0;
+
+			if (junctions.length > 0)
+			{
+				type.value = roads.getJunctionType(junctions[0]);
+				lightFields.hidden = type.value != 'light';
+
+				if (document.activeElement != green)
+				{
+					green.value = roads.getGreen(junctions[0]) || '';
+				}
+
+				updateCycle();
+			}
+
+			if (edges.length > 0)
+			{
+				var road = roads.getRoad(edges[0]);
+				lanes.value = road.lanes;
+				direction.value = road.dir;
+			}
+		};
+
+		graph.getSelectionModel().addListener(win.mxEvent.CHANGE, show);
+		graph.model.addListener(win.mxEvent.CHANGE, show);
+
+		type.addEventListener('change', function()
+		{
+			roads.setJunctionType(junctions, type.value);
+		});
+
+		green.addEventListener('change', function()
+		{
+			var value = parseInt(green.value);
+
+			if (!isNaN(value) && value > 0)
+			{
+				roads.setGreen(junctions, Math.min(600, value));
+			}
+
+			show();
+		});
+
+		lanes.addEventListener('change', function()
+		{
+			roads.setRoads(edges, parseInt(lanes.value), null);
+		});
+
+		direction.addEventListener('change', function()
+		{
+			roads.setRoads(edges, null, parseInt(direction.value));
+		});
+
+		show();
 	};
 
 	/**

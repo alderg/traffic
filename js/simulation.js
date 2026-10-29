@@ -2388,7 +2388,20 @@ window.TrafficSimulation = function(ui, listener)
 	graph.view.addListener(mxEvent.TRANSLATE, updateTransform);
 	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, updateTransform);
 
+	/**
+	 * Returns the timing of the traffic light with the given ID in steps:
+	 * the number of approach axes, green, yellow and the cycle, or null.
+	 */
+	function getLight(id)
+	{
+		var crossing = (net != null) ? net.crossingMap.get(id) : null;
+
+		return (crossing != null && crossing.phases != null) ? {axes: crossing.phases.length,
+			green: crossing.light, yellow: crossing.yellow,
+			cycle: crossing.phases.length * (crossing.light + crossing.yellow)} : null;
+	};
+
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
-		importFile: importFile};
+		importFile: importFile, getLight: getLight};
 };

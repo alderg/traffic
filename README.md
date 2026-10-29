@@ -27,6 +27,11 @@ are driving.
   counterclockwise. Cars give way to the ring when they enter.
 - Free ends of roads join the junction they are on or other free ends
   nearby, else cars can start and end there.
+- The Selection section of the panel shows the selected junctions and
+  roads: the type of junctions (crossing, traffic light, roundabout), the
+  green time of traffic lights with their cycle, and the lanes and
+  direction of roads. Changes apply at once, also while cars are driving,
+  and can be undone.
 - 1 unit is 1 meter and 1 step is 1 second. Curved connectors and
   waypoints are followed.
 

@@ -6,7 +6,9 @@
  * the window of the editor: TrafficRoads(ui) registers the road and
  * roundabout shapes, replaces the shape libraries of the given EditorUi with
  * palettes of junctions and roads, makes new connectors two-way roads and
- * connects road ends that are dropped on junctions. The static functions of
+ * connects road ends that are dropped on junctions. It returns functions to
+ * read and change the type of junctions, the green time of traffic lights
+ * and the lanes and direction of roads. The static functions of
  * TrafficRoads are the geometry of lanes and rings that js/simulation.js
  * shares with the shapes.
  *
@@ -926,6 +928,127 @@ window.TrafficRoads = function(ui)
 
 	// Paints roads of a diagram that was opened before the shapes existed
 	graph.refresh();
+
+	/**
+	 * Returns the type of the given junction: crossing, light or roundabout.
+	 */
+	function getJunctionType(cell)
+	{
+		var style = graph.getCellStyle(cell);
+
+		return (roads.isRoundabout(style)) ? 'roundabout' : ((roads.isLight(style)) ? 'light' : 'crossing');
+	};
+
+	return {
+		getJunctionType: getJunctionType,
+
+		/**
+		 * Gives the given junctions the style of the given type, keeping their
+		 * center and green time. Roundabouts are at least 60 units, other
+		 * junctions that were roundabouts 24 units.
+		 */
+		setJunctionType: function(cells, type)
+		{
+			var model = graph.model;
+			model.beginUpdate();
+			try
+			{
+				for (var i = 0; i < cells.length; i++)
+				{
+					var cell = cells[i];
+					var geo = model.getGeometry(cell);
+					var current = getJunctionType(cell);
+
+					if (model.isVertex(cell) && geo != null && current != type)
+					{
+						var green = parseInt(mxUtils.getValue(graph.getCellStyle(cell), 'trafficLight', 10)) || 10;
+						var size = (type == 'roundabout') ? Math.max(60, geo.width, geo.height) :
+							((current == 'roundabout') ? 24 : null);
+						model.setStyle(cell, (type == 'roundabout') ? roundaboutStyle : ((type == 'light') ?
+							lightStyle.replace('trafficLight=10;', 'trafficLight=' + green + ';') : crossingStyle));
+
+						if (size != null)
+						{
+							geo = geo.clone();
+							geo.x += (geo.width - size) / 2;
+							geo.y += (geo.height - size) / 2;
+							geo.width = size;
+							geo.height = size;
+							model.setGeometry(cell, geo);
+						}
+					}
+				}
+			}
+			finally
+			{
+				model.endUpdate();
+			}
+		},
+
+		/**
+		 * Returns the steps of green of the given traffic light.
+		 */
+		getGreen: function(cell)
+		{
+			return parseInt(mxUtils.getValue(graph.getCellStyle(cell), 'trafficLight', 0)) || 0;
+		},
+
+		/**
+		 * Sets the steps of green of the given traffic lights.
+		 */
+		setGreen: function(cells, steps)
+		{
+			graph.setCellStyles('trafficLight', steps, cells.filter(function(cell)
+			{
+				return getJunctionType(cell) == 'light';
+			}));
+		},
+
+		/**
+		 * Returns the lanes per direction and the direction of the given road,
+		 * 1 for source to target, -1 for the opposite and 0 for both.
+		 */
+		getRoad: function(cell)
+		{
+			var style = graph.getCellStyle(cell);
+
+			return {lanes: roads.getLanes(style), dir: roads.getDirection(style)};
+		},
+
+		/**
+		 * Sets the lanes and the direction of the given connectors, which
+		 * become roads. Null keeps the value of each road.
+		 */
+		setRoads: function(cells, lanes, dir)
+		{
+			var model = graph.model;
+			model.beginUpdate();
+			try
+			{
+				for (var i = 0; i < cells.length; i++)
+				{
+					if (model.isEdge(cells[i]))
+					{
+						var style = graph.getCellStyle(cells[i]);
+						var l = (lanes != null) ? lanes : roads.getLanes(style);
+						var d = (dir != null) ? dir : roads.getDirection(style);
+						var values = {shape: 'road', lanes: l, endArrow: (d > 0) ? 'block' : 'none',
+							startArrow: (d < 0) ? 'block' : 'none',
+							strokeWidth: l * roads.getLaneWidth(style) * ((d == 0) ? 2 : 1)};
+
+						for (var key in values)
+						{
+							graph.setCellStyles(key, values[key], [cells[i]]);
+						}
+					}
+				}
+			}
+			finally
+			{
+				model.endUpdate();
+			}
+		}
+	};
 };
 
 /**

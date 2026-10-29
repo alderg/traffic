@@ -29,6 +29,34 @@
 	<section>
 		<div id="stats" class="stats">Loading the editor…</div>
 	</section>
+	<section id="selection">
+		<h2>Selection</h2>
+		<p id="selection-hint" class="hint">Select a junction or a road to change it.</p>
+		<div id="junction-fields" hidden>
+			<label class="row"><span>Junction</span><select id="junction-type">
+				<option value="crossing">Crossing</option>
+				<option value="light">Traffic light</option>
+				<option value="roundabout">Roundabout</option>
+			</select></label>
+			<div id="light-fields" hidden>
+				<label class="row"><span>Green (s)</span><input id="green" type="number" min="1" max="600"></label>
+				<p id="cycle" class="hint"></p>
+			</div>
+		</div>
+		<div id="road-fields" hidden>
+			<label class="row"><span>Lanes</span><select id="lanes">
+				<option value="1">1 per direction</option>
+				<option value="2">2 per direction</option>
+				<option value="3">3 per direction</option>
+				<option value="4">4 per direction</option>
+			</select></label>
+			<label class="row"><span>Direction</span><select id="direction">
+				<option value="0">Both ways</option>
+				<option value="1">Forward only</option>
+				<option value="-1">Backward only</option>
+			</select></label>
+		</div>
+	</section>
 	<section>
 		<h2>Network</h2>
 		<label class="row"><span>Example</span><select id="example" disabled>
@@ -42,6 +70,7 @@
 		<ul>
 			<li>Open Shapes for crossings, traffic lights, roundabouts and roads with 1 to 3 lanes.</li>
 			<li>Drop the ends of a road on junctions, select two junctions and click a road, or drag from the arrows of a junction.</li>
+			<li>Select a junction or a road to change its type, green time, lanes or direction under Selection.</li>
 			<li>A road with one arrow is a one-way road, one with no or two arrows a road in both directions. <code>lanes=2</code> in its style sets the lanes per direction.</li>
 			<li>Traffic lights give each approach axis 10 seconds of green (<code>trafficLight=10</code>), then 3 seconds of yellow.</li>
 			<li>1 unit is 1 meter and 1 step is 1 second.</li>

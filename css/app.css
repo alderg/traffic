@@ -150,6 +150,12 @@ select, input[type="number"] {
 	font-variant-numeric: tabular-nums;
 }
 
+.hint {
+	margin: 0 0 8px;
+	font-size: 12px;
+	color: var(--muted);
+}
+
 .help ul {
 	margin: 0;
 	padding-left: 18px;
