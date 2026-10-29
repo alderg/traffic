@@ -1877,7 +1877,7 @@
 
 		var labelsHint = document.getElementById('labels-hint');
 
-		['reroute', 'density', 'labels'].forEach(function(key)
+		['reroute', 'passEitherSide', 'density', 'labels'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];

@@ -93,8 +93,15 @@ when they stand over violet and magenta to red for the fastest, as in the
 legend of the panel. Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
-there is space, each only if no car is close behind there. On roads with
-one lane per direction, a car that is blocked by a slower vehicle, eg. a
+there is space, each only if no car is close behind there. With Pass on
+either side (US) in the panel, off by default, every lane is its own lane:
+a blocked car passes on the left or the right, where the next lane has
+more space (the left if both have as much), with the same checks and
+turns, and stays in that lane, as nobody keeps right. The setting applies
+at once and, like the others, is not kept when the page reloads. In
+roundabouts, cars choose their ring lane by their exit under both rules,
+and the passing through the oncoming lane below is the same too. On roads
+with one lane per direction, a car that is blocked by a slower vehicle, eg. a
 truck, passes it through the oncoming lane, with a probability of 50 %
 per step, one car per road at a time: only if the cell behind it and two
 cells ahead of the slower one are free, if it can be past while

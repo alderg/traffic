@@ -16,7 +16,9 @@
  * dawdle, move. Cars keep their lane and change to the next lane when their
  * lane does not allow their next turn, earlier and into smaller gaps closer
  * to the end, to the left to pass slower cars, and back to the right when
- * there is space, in each case only if no car is close behind there.
+ * there is space, in each case only if no car is close behind there. With
+ * passEitherSide in the config (US), they pass on either side, where there
+ * is more space, and do not go back to the right.
  *
  * Crossings let as many cars pass per step as their widest incoming road has
  * lanes and take the incoming links in turns. Cars only pass from lanes that
@@ -155,7 +157,7 @@ window.TrafficSimulation = function(ui, listener)
 	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1};
+		trucks: 0.2, fast: 0.1, passEitherSide: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -1137,6 +1139,8 @@ window.TrafficSimulation = function(ui, listener)
 	 * toward one that does, into gaps of one cell in the last turnCells
 	 * cells. Others pass on the left when they are blocked and there is more
 	 * space, and go back to the right when there is space for their speed.
+	 * With passEitherSide (US), blocked cars pass on the side with more space,
+	 * the left if both have as much, and stay in their lane after passing.
 	 */
 	Link.prototype.chooseLane = function(v, k, cell)
 	{
@@ -1152,7 +1156,36 @@ window.TrafficSimulation = function(ui, listener)
 			return (side != 0 && this.canChange(k, k + side, cell, (left > turnCells) ? vmax : 1)) ? k + side : k;
 		}
 
-		if (left > 0)
+		if (left > 0 && config.passEitherSide)
+		{
+			var gap = this.getGap(k, cell, vm);
+
+			if (gap < Math.min(v.v + 1, vm))
+			{
+				var lane = k;
+				var space = gap;
+
+				for (var l = k - 1; l <= k + 1; l += 2)
+				{
+					if (this.canChange(k, l, cell, vmax) && (left > turnCells || this.allows(l, next)))
+					{
+						var g = this.getGap(l, cell, vm);
+
+						if (g > space)
+						{
+							lane = l;
+							space = g;
+						}
+					}
+				}
+
+				if (lane != k && Math.random() < overtakeProbability)
+				{
+					return lane;
+				}
+			}
+		}
+		else if (left > 0)
 		{
 			var gap = this.getGap(k, cell, vm);
 
