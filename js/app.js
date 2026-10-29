@@ -425,7 +425,7 @@
 
 	/**
 	 * Shows the colors of the speeds that the vehicles have now, which depend
-	 * on the theme and the map background.
+	 * on the theme of the editor, Adapt colors and the map background.
 	 */
 	function updateLegend()
 	{
@@ -1921,7 +1921,7 @@
 
 		var labelsHint = document.getElementById('labels-hint');
 
-		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'density', 'labels', 'center'].forEach(function(key)
+		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'labels', 'center'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];

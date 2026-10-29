@@ -127,14 +127,29 @@ as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
 along their lane, turned in their direction through curves, crossings,
 roundabouts and lane changes, and in the color of their speed from blue
 when they stand over violet and magenta to red for the fastest, as in the
-legend of the panel. The road is the same mid-gray (#5f6368) in both
-themes, so the vehicles on it are light (#71bfff, #baafff, #f993ff,
-#ff98ca, #ff9f8f), with a contrast of at least 3:1 to the road at every
-speed, also on the dark map background. On the light map background with
-the roads and junctions hidden, where the streets under them are white or
-pale, they are dark (#0d61ff, #792cff, #b100bd, #c20080, #cb0e00), at
-least 5.8:1 to white. Their colors and the legend follow the theme and the
-layers at once. Cars keep their lane. They change to the next lane
+legend of the panel. With Adapt colors to light/dark mode in the panel,
+on by default, roads and vehicles follow the theme together: in light mode
+the road is lighter (#a3a8ad) and the vehicles on it dark (#0040dd,
+#5b00f6, #9400a1, #a50060, #a91100), with a contrast of at least 3.15:1
+to the road at every speed and 7.5:1 to white, so also on the light map
+with or without the roads; in dark mode the road is darker (#3c4043) and
+the vehicles light (#71bfff, #baafff, #f993ff, #ff98ca, #ff9f8f), at
+least 5.2:1 to the road, also on the inverted dark map. The white
+markings have 2.4:1 to the light road and 10:1 to the dark one, the stop
+bars are darker on the light road (#d93025, #f29900, #188038), and the
+density stripes are a bit more opaque on both, darker on the light road
+and lighter on the dark one. Off, the road is the same
+mid-gray (#5f6368) in both themes and the vehicles on it light (the colors
+of dark mode), at least 3:1, and dark on the light map with the roads and
+junctions hidden (#0d61ff, #792cff, #b100bd, #c20080, #cb0e00), at least
+5:1 to white. The colors are light-dark pairs that the browser resolves
+for the theme of the editor, so a change of the theme repaints nothing,
+and the legend follows the theme, the layers and the checkbox at once.
+The road of the theme stands for the gray asphalt that the styles of
+roads and junctions have (`light-dark(#5f6368,#5f6368)`), also in saved
+diagrams and loaded towns, and other colors in their styles are kept.
+Like the other display settings, the checkbox is not kept when the page
+reloads. Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
 there is space, each only if no car is close behind there. With Pass on
@@ -495,6 +510,15 @@ then writes its own debug messages and has a Develop menu.
   and turned in its direction, filled with the color of its speed. The
   outlines are made once per type and degree, as a new path paints faster
   than a new transform. It never changes the diagram, except for imports.
+  The colors of the speeds are pairs of stops from blue to red, one for
+  light mode against the road of light mode (#a3a8ad) and one for dark
+  mode against the road of dark mode (#3c4043), each at least 3:1 at every
+  step, which become light-dark pairs (`speedStopPairs`); without Adapt
+  colors, both are the light stops on the gray road, except on the light
+  map without the roads (`mapSpeedStops`). Further color sets
+  for the vehicles, such as a choice of sets in the panel, follow this
+  pattern: each set with a light and a dark variant against these roads,
+  and Adapt colors applies to all of them.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
   tag, without history. To update it by hand:
 

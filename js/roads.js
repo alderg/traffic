@@ -39,7 +39,12 @@
  * no fixed connection points, roads always connect to their outline.
  *
  * Default colors are light-dark pairs with the same color on both sides, so
- * that the dark mode of the editor does not invert them. Other draw.io apps
+ * that the dark mode of the editor does not invert them. The asphalt that
+ * styles have, the gray of TrafficRoads.asphalt, stands for the road of the
+ * theme: with TrafficRoads.adaptive, the default, roads and crossings are
+ * painted lighter in light mode and darker in dark mode (themeAsphalt), as
+ * a light-dark pair that the browser resolves for the theme, else in that
+ * gray in both. Other colors in the style are kept. Other draw.io apps
  * paint roads as plain connectors and roundabouts as rectangles.
  */
 window.TrafficRoads = function(ui)
@@ -78,8 +83,8 @@ window.TrafficRoads = function(ui)
 		var own = (shape.state != null) ? shape.state.cell.style : null;
 		var value = shape.style[key];
 
-		return (value == null || value == 'default' || (typeof own === 'string' &&
-			own.indexOf(key + '=') < 0)) ? defaultColor : value;
+		return roads.getThemeColor((value == null || value == 'default' || (typeof own === 'string' &&
+			own.indexOf(key + '=') < 0)) ? defaultColor : value);
 	};
 
 	/**
@@ -695,6 +700,7 @@ window.TrafficRoads = function(ui)
 
 		if (ends.length == 0)
 		{
+			c.setFillColor(getColor(this, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
 			mxEllipse.prototype.paintVertexShape.apply(this, arguments);
 		}
 		else
@@ -720,6 +726,7 @@ window.TrafficRoads = function(ui)
 
 		if (ends.length == 0)
 		{
+			c.setFillColor(getColor(this, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
 			mxLabel.prototype.paintVertexShape.apply(this, arguments);
 		}
 		else
@@ -1339,11 +1346,31 @@ TrafficRoads.guard = function(fn, name)
 };
 
 /**
- * Default colors of asphalt, markings and roundabout islands.
+ * Default colors of asphalt, markings and roundabout islands. The asphalt
+ * is the gray of both themes, which styles keep, and themeAsphalt the
+ * lighter road of light mode and the darker one of dark mode, against which
+ * the vehicles of the simulation have their colors.
  */
 TrafficRoads.asphalt = 'light-dark(#5f6368,#5f6368)';
+TrafficRoads.themeAsphalt = 'light-dark(#a3a8ad,#3c4043)';
 TrafficRoads.marking = 'light-dark(#ffffff,#ffffff)';
 TrafficRoads.island = 'light-dark(#a8d5a0,#2f5d2a)';
+
+/**
+ * Roads and crossings in the asphalt of the theme, on by default.
+ */
+TrafficRoads.adaptive = true;
+
+/**
+ * Returns the asphalt of the theme for the gray asphalt and themeAsphalt
+ * while adaptive is on, the gray for both while it is off, and other colors
+ * as they are.
+ */
+TrafficRoads.getThemeColor = function(color)
+{
+	return (color == TrafficRoads.asphalt || color == TrafficRoads.themeAsphalt) ?
+		((TrafficRoads.adaptive) ? TrafficRoads.themeAsphalt : TrafficRoads.asphalt) : color;
+};
 
 /**
  * Default width of a lane in units (meters).
