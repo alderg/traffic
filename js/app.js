@@ -49,6 +49,11 @@
 	var statsShown = null;
 	var town = null;
 	var openingFile = false;
+	// The last load that may replace the diagram, the changes of the diagram
+	// so far and the open question to discard them (see confirmLoad)
+	var lastLoad = null;
+	var changes = 0;
+	var question = null;
 	var map = null;
 	var legendBar = null;
 	var legendStops = null;
@@ -381,6 +386,12 @@
 		{
 			ui = editorUi;
 			logHandledErrors();
+
+			ui.editor.graph.model.addListener(win.mxEvent.CHANGE, function()
+			{
+				changes++;
+			});
+
 			win.TrafficRoads.onError = logError;
 			roads = win.TrafficRoads(ui);
 			map = win.TrafficMap(ui, tiles);
@@ -393,11 +404,13 @@
 
 			// Files that draw.io opens itself, eg. with File > Open or New,
 			// replace the town in the URL and in Copy Link, so that a reload
-			// does not open the town again
+			// does not open the town again, and towns and examples that are
+			// still loading
 			ui.editor.addListener('fileLoaded', function()
 			{
 				if (!openingFile)
 				{
+					lastLoad = null;
 					town.cancel();
 					town.clear();
 				}
@@ -1798,7 +1811,14 @@
 
 		loadButton.addEventListener('click', function()
 		{
-			load(false);
+			var p = place;
+			var l = level.value;
+			var s = section;
+
+			confirmLoad(function(confirmed)
+			{
+				load(confirmed, p, l, s, false);
+			});
 		});
 
 		/**
@@ -1813,15 +1833,13 @@
 		};
 
 		/**
-		 * Loads, builds and opens the network of the chosen place, level and
-		 * section, from the cache unless fresh is true, with the given trips
-		 * of a link, if any.
+		 * Loads, builds and opens the network of the given place, level and
+		 * section for the given load of confirmLoad, from the cache unless
+		 * fresh is true, with the given trips of a link, if any. The diagram
+		 * stays as it is until the network is built.
 		 */
-		function load(fresh, onError, trips)
+		function load(confirmed, p, l, s, fresh, onError, trips)
 		{
-			var p = place;
-			var l = level.value;
-			var s = section;
 			var t = startTask('Loading the roads of ' + p.name + '\u2026', 'Loading ' + p.name + '\u2026');
 			var start = Date.now();
 			var last = null;
@@ -1893,10 +1911,10 @@
 				{
 					setStatus('Opening the network\u2026');
 					// The town is drawn before the next paint, or the editor
-					// first asks to discard the changes of the diagram
+					// first asks to discard changes made while it loaded
 					loading.hide();
 
-					openFile(withTrips(r.result.xml, trips), p.name + '.drawio', function()
+					openFile(withTrips(r.result.xml, trips), p.name + '.drawio', confirmed, function()
 					{
 						loaded = {place: p, level: l, section: s};
 						updateLink();
@@ -1971,8 +1989,11 @@
 
 			reload.addEventListener('click', function()
 			{
-				choose(p, l, s);
-				load(true);
+				confirmLoad(function(confirmed)
+				{
+					choose(p, l, s);
+					load(confirmed, p, l, s, true);
+				});
 			});
 
 			if (entry.cached)
@@ -2086,9 +2107,26 @@
 
 		/**
 		 * Loads the town of ?osm=<type>/<id> or ?city=<name>, with roads and
-		 * the section of circle or bbox. Opens the example if that fails.
+		 * the section of circle or bbox, after asking to discard the changes
+		 * of the diagram, if any.
 		 */
 		function loadFromUrl()
+		{
+			// The card that shows the start of the editor would stay if the
+			// changes are kept
+			if (hasChanges())
+			{
+				loading.hide();
+			}
+
+			confirmLoad(findFromUrl);
+		};
+
+		/**
+		 * Finds and loads the town of the URL for the given load of
+		 * confirmLoad. Opens the example if that fails.
+		 */
+		function findFromUrl(confirmed)
 		{
 			var key = params.get('osm');
 			var name = params.get('city');
@@ -2137,7 +2175,7 @@
 				{
 					if (entry != null)
 					{
-						load(false, fail, trips);
+						load(confirmed, p, level.value, s, false, fail, trips);
 					}
 					else
 					{
@@ -2158,6 +2196,7 @@
 		return {loadFromUrl: loadFromUrl, cancel: function()
 		{
 			var t = task;
+			loading.hide();
 
 			if (t != null)
 			{
@@ -2197,14 +2236,72 @@
 	};
 
 	/**
-	 * Opens the given file in the editor, also in the web app, where
-	 * openLocalFile opens files in a new window if the diagram is not empty,
-	 * and fits the whole diagram into the window.
+	 * Returns true if the diagram has changes that are not saved.
 	 */
-	function openFile(xml, name, onLoad)
+	function hasChanges()
+	{
+		var file = ui.getCurrentFile();
+
+		return file != null && file.isModified();
+	};
+
+	/**
+	 * Starts a load that replaces the diagram, eg. a town or an example, by
+	 * calling fn with it before anything is loaded: at once if the diagram
+	 * has no unsaved changes, else once the user agreed to discard them, and
+	 * not if the user cancels. The diagram is replaced only by the last load
+	 * that started and only once it has loaded (see openFile), so that loads
+	 * that fail, time out or are cancelled keep the diagram with its changes
+	 * and draw.io still knows them as unsaved. Loads that start while the
+	 * question is open take the place of the one that it starts.
+	 */
+	function confirmLoad(fn)
+	{
+		function start(f)
+		{
+			lastLoad = {changes: changes};
+			f(lastLoad);
+		};
+
+		if (question != null)
+		{
+			question.fn = fn;
+		}
+		else if (hasChanges())
+		{
+			var win = frame.contentWindow;
+			var q = question = {fn: fn};
+
+			// Ends the question when the dialog closes, also with Escape,
+			// which is before its buttons run
+			var close = function()
+			{
+				question = null;
+			};
+
+			ui.confirm(win.mxResources.get('allChangesLost'), close, function()
+			{
+				close();
+				start(q.fn);
+			}, win.mxResources.get('cancel'), win.mxResources.get('discardChanges'), null, close);
+		}
+		else
+		{
+			start(fn);
+		}
+	};
+
+	/**
+	 * Opens the given file of the given load of confirmLoad in the editor,
+	 * unless a newer load started, also in the web app, where openLocalFile
+	 * opens files in a new window if the diagram is not empty, and fits the
+	 * whole diagram into the window. Asks again to discard the changes of
+	 * the diagram only if it changed while the file loaded, but drops the
+	 * file then if the question is open for a newer load.
+	 */
+	function openFile(xml, name, load, onLoad)
 	{
 		var win = frame.contentWindow;
-		var file = ui.getCurrentFile();
 
 		var fn = function()
 		{
@@ -2231,14 +2328,19 @@
 			}
 		};
 
-		if (file != null && file.isModified())
+		// Files of loads that a newer one replaced are not opened
+		if (load == lastLoad)
 		{
-			ui.confirm(win.mxResources.get('allChangesLost'), null, fn,
-				win.mxResources.get('cancel'), win.mxResources.get('discardChanges'));
-		}
-		else
-		{
-			fn();
+			if (load.changes == changes)
+			{
+				fn();
+			}
+			// The diagram changed while the file loaded, unless the user is
+			// asked already for a newer load
+			else if (question == null)
+			{
+				confirmLoad(fn);
+			}
 		}
 	};
 
@@ -2311,34 +2413,45 @@
 		}
 	};
 
+	/**
+	 * Opens the example of the given name after asking to discard the
+	 * changes of the diagram, if any (see confirmLoad), and stops a town
+	 * that is still loading unless keepTown is true.
+	 */
 	function openExample(name, keepTown)
 	{
-		// A town that is still loading would replace the example
-		if (town != null && !keepTown)
+		confirmLoad(function(confirmed)
 		{
-			town.cancel();
-		}
-
-		fetch('data/' + name + '.drawio').then(function(response)
-		{
-			if (!response.ok)
+			if (town != null && !keepTown)
 			{
-				throw new Error(response.status + ' ' + response.statusText);
+				town.cancel();
 			}
 
-			return response.text();
-		}).then(function(xml)
-		{
-			openFile(xml, name + '.drawio', function()
+			fetch('data/' + name + '.drawio').then(function(response)
 			{
-				if (town != null && !keepTown)
+				if (!response.ok)
 				{
-					town.clear();
+					throw new Error(response.status + ' ' + response.statusText);
+				}
+
+				return response.text();
+			}).then(function(xml)
+			{
+				openFile(xml, name + '.drawio', confirmed, function()
+				{
+					if (town != null && !keepTown)
+					{
+						town.clear();
+					}
+				});
+			})['catch'](function(e)
+			{
+				// Not for examples that a newer load replaced
+				if (confirmed == lastLoad)
+				{
+					ui.handleError(e);
 				}
 			});
-		})['catch'](function(e)
-		{
-			ui.handleError(e);
 		});
 	};
 

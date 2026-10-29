@@ -478,6 +478,16 @@ Under Network, Load your town loads the roads of a town or city from
   example or another town is opened, or a file in draw.io (File > Open,
   New), which also cancels a town that is still loading, so that a reload
   does not open the town again.
+- If the diagram has unsaved changes, Load, Load again and the Example
+  menu ask at once to discard them, before anything is loaded, and Cancel
+  or Escape leaves the diagram and the panel as they were. The diagram is
+  replaced only once the new network is loaded and built, without asking
+  again: if loading fails, times out, finds no roads or is cancelled, the
+  diagram stays with its changes, which draw.io still shows as unsaved,
+  and the card shows the error. Of loads started one after the other only
+  the last replaces the diagram, and one started while the question is
+  open takes the place of the one it was asked for. It asks again only if
+  the diagram was changed while the town loaded.
 - Loaded towns are kept in the browser (IndexedDB) with the date and the
   query, the 12 last, so that a reload or a link opens them without
   loading again, also a section of a loaded town. Load again loads the
@@ -784,8 +794,10 @@ then writes its own debug messages and has a Develop menu.
   and jobs of the zones on their junctions, which the page opens like the
   examples (see [Loading Your Town](#loading-your-town)). It runs in the
   page, not in the editor, and in Node for `tools/osm2drawio.js`.
-- `openFile` in `js/app.js` opens towns and examples with
-  `EditorUi.fileLoaded` and fits them while the shapes are drawn into a
+- `confirmLoad` in `js/app.js` asks to discard unsaved changes when a town
+  or an example starts to load (see [Loading Your Town](#loading-your-town)),
+  and `openFile` opens it once it has loaded if no newer load started, with
+  `EditorUi.fileLoaded`, and fits it while the shapes are drawn into a
   copy of the draw pane outside of the document, which then replaces the
   pane (`drawOutsideDocument`). The document changes once instead of
   230,000 times for Northampton (3,565 junctions), whose 89,676 SVG
