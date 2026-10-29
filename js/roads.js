@@ -22,11 +22,13 @@
  * the outside and a central island in islandColor. Traffic circulates
  * counterclockwise and enters and leaves on the roads connected to it.
  *
- * A crossing is an ellipse or a traffic light. With roads connected, it is
- * painted as asphalt as wide as its widest road and the roads end there, so
- * that they join without a disc that is larger than the roads. Traffic
- * lights are 3 units wider for a small traffic light icon in the center.
- * The bounds stay the area for selecting and connecting crossings.
+ * A crossing is an ellipse or a traffic light. With roads connected, the
+ * roads end as far from its center as its widest road is wide, traffic
+ * lights 3 units farther for a small icon in the center, and the crossing
+ * is painted as the asphalt between the ends of its roads, with rounded
+ * corners and edge lines that continue the edges of the roads. The bounds
+ * stay the area for selecting and connecting crossings. Junctions have no
+ * fixed connection points, roads always connect to their outline.
  *
  * Default colors are light-dark pairs with the same color on both sides, so
  * that the dark mode of the editor does not invert them. Other draw.io apps
@@ -120,7 +122,7 @@ window.TrafficRoads = function(ui)
 	 * Returns the given points with the ends moved into round junctions, so
 	 * that the asphalt joins them without notches. Ends in junctions other
 	 * than crossings that are narrower than the road move to the center and
-	 * are added to discs.
+	 * are added to discs. Crossings paint the asphalt between the roads.
 	 */
 	RoadShape.prototype.extendEnds = function(pts, h, discs)
 	{
@@ -136,7 +138,8 @@ window.TrafficRoads = function(ui)
 				var crossing = roads.getCrossingRadius(terminal);
 				var r = (crossing != null) ? crossing :
 					Math.min(terminal.width, terminal.height) / 2 / this.scale;
-				var e = (h < r) ? Math.min(r, r - Math.sqrt(r * r - h * h) + 0.5) : r;
+				var e = (crossing != null) ? 0.5 : ((h < r) ?
+					Math.min(r, r - Math.sqrt(r * r - h * h) + 0.5) : r);
 				var p0 = pts[(i == 0) ? 0 : n - 1];
 				var p1 = pts[(i == 0) ? 1 : n - 2];
 				var len = roads.getDistance(p0, p1);
@@ -256,8 +259,7 @@ window.TrafficRoads = function(ui)
 			c.fill();
 		}
 
-		// Markings are skipped where they are too small to see
-		if (markColor != mxConstants.NONE && lw * this.scale >= 3)
+		if (markColor != mxConstants.NONE)
 		{
 			c.setShadow(false);
 			c.setStrokeColor(markColor);
@@ -361,63 +363,165 @@ window.TrafficRoads = function(ui)
 		c.ellipse(cx - ring.inner, cy - ring.inner, 2 * ring.inner, 2 * ring.inner);
 		c.fill();
 
-		if (lw * this.scale >= 3)
+		c.setShadow(false);
+		c.setStrokeColor(roads.marking);
+		c.setFillColor(roads.marking);
+		c.setStrokeWidth(m);
+		c.ellipse(cx - ring.inner, cy - ring.inner, 2 * ring.inner, 2 * ring.inner);
+		c.stroke();
+
+		c.setDashed(true, true);
+		c.setDashPattern('5 5');
+
+		for (var k = 1; k < ring.lanes; k++)
 		{
-			c.setShadow(false);
-			c.setStrokeColor(roads.marking);
-			c.setFillColor(roads.marking);
-			c.setStrokeWidth(m);
-			c.ellipse(cx - ring.inner, cy - ring.inner, 2 * ring.inner, 2 * ring.inner);
+			var r = ring.inner + 1 + k * lw;
+			c.ellipse(cx - r, cy - r, 2 * r, 2 * r);
+			c.stroke();
+		}
+
+		// Counterclockwise arrows on the ring
+		c.setDashed(false);
+		var r = ring.center;
+		var s = Math.min(lw, r * 0.35);
+
+		for (var i = 0; i < 4; i++)
+		{
+			var a = (i + 0.5) * Math.PI / 2;
+			var px = cx + r * Math.cos(a);
+			var py = cy + r * Math.sin(a);
+			var dx = Math.sin(a);
+			var dy = -Math.cos(a);
+
+			c.begin();
+			c.moveTo(px - dx * 0.7 * s, py - dy * 0.7 * s);
+			c.lineTo(px, py);
 			c.stroke();
 
-			c.setDashed(true, true);
-			c.setDashPattern('5 5');
-
-			for (var k = 1; k < ring.lanes; k++)
-			{
-				var r = ring.inner + 1 + k * lw;
-				c.ellipse(cx - r, cy - r, 2 * r, 2 * r);
-				c.stroke();
-			}
-
-			// Counterclockwise arrows on the ring
-			c.setDashed(false);
-			var r = ring.center;
-			var s = Math.min(lw, r * 0.35);
-
-			for (var i = 0; i < 4; i++)
-			{
-				var a = (i + 0.5) * Math.PI / 2;
-				var px = cx + r * Math.cos(a);
-				var py = cy + r * Math.sin(a);
-				var dx = Math.sin(a);
-				var dy = -Math.cos(a);
-
-				c.begin();
-				c.moveTo(px - dx * 0.7 * s, py - dy * 0.7 * s);
-				c.lineTo(px, py);
-				c.stroke();
-
-				c.begin();
-				c.moveTo(px + dx * 0.6 * s, py + dy * 0.6 * s);
-				c.lineTo(px - dy * 0.3 * s, py + dx * 0.3 * s);
-				c.lineTo(px + dy * 0.3 * s, py - dx * 0.3 * s);
-				c.close();
-				c.fill();
-			}
+			c.begin();
+			c.moveTo(px + dx * 0.6 * s, py + dy * 0.6 * s);
+			c.lineTo(px - dy * 0.3 * s, py + dx * 0.3 * s);
+			c.lineTo(px + dy * 0.3 * s, py - dx * 0.3 * s);
+			c.close();
+			c.fill();
 		}
 	};
 
 	mxCellRenderer.registerShape('roundabout', RoundaboutShape);
 
 	/**
-	 * Paints the asphalt of a crossing with the given radius and keeps its
-	 * bounds for events. Traffic lights get a small icon in the center.
+	 * Crossing states that were painted before their roads were updated.
 	 */
-	function paintCrossing(shape, c, x, y, w, h, r)
+	var pending = [];
+
+	/**
+	 * Returns the ends of the roads at the given crossing state in the
+	 * coordinates of its shape, sorted by angle: the center of the end, the
+	 * unit vector along the road and half the width of the road. Shapes in
+	 * the draw pane are painted in model units, else in screen units divided
+	 * by the scale.
+	 */
+	function getRoadEnds(state)
+	{
+		var view = state.view;
+		var model = view.graph.model;
+		var s = view.scale;
+		var tx = (state.shape.isModelCoordinates()) ? 0 : view.translate.x;
+		var ty = (state.shape.isModelCoordinates()) ? 0 : view.translate.y;
+		var result = [];
+
+		for (var i = 0; i < model.getEdgeCount(state.cell); i++)
+		{
+			var edgeState = view.getState(model.getEdgeAt(state.cell, i));
+
+			if (edgeState != null && edgeState.style[mxConstants.STYLE_SHAPE] == 'road')
+			{
+				if (edgeState.invalid || edgeState.absolutePoints == null)
+				{
+					pending.push(state);
+				}
+				else
+				{
+					var source = edgeState.getVisibleTerminalState(true) == state;
+					var path = roads.getPath(edgeState.cellPoints || edgeState.absolutePoints.map(function(p)
+					{
+						return (p != null) ? new mxPoint(p.x / s - view.translate.x, p.y / s - view.translate.y) : null;
+					}), {});
+
+					if (source != (edgeState.getVisibleTerminalState(false) == state) && path.length > 1)
+					{
+						var p0 = path[(source) ? 0 : path.length - 1];
+						var p1 = path[(source) ? 1 : path.length - 2];
+						var len = roads.getDistance(p0, p1);
+						var dx = (p1.x - p0.x) / len;
+						var dy = (p1.y - p0.y) / len;
+
+						result.push({x: p0.x + tx, y: p0.y + ty, dx: dx, dy: dy,
+							h: roads.getRoadWidth(edgeState.style) / 2, angle: Math.atan2(dy, dx)});
+					}
+				}
+			}
+		}
+
+		result.sort(function(a, b)
+		{
+			return a.angle - b.angle;
+		});
+
+		return result;
+	};
+
+	/**
+	 * Adds the corner from the right edge of road a to the left edge of the
+	 * next road b at the given distance inside the edges to the path: a
+	 * curve through the intersection of the edges, a line where the edges
+	 * are in line or overlap, and a round end around a gap of half a turn or
+	 * more.
+	 */
+	function addCorner(c, a, b, d, gap)
+	{
+		var ax = a.x - a.dy * (a.h - d);
+		var ay = a.y + a.dx * (a.h - d);
+		var bx = b.x + b.dy * (b.h - d);
+		var by = b.y - b.dx * (b.h - d);
+		var wx = ax - bx;
+		var wy = ay - by;
+		var dist = Math.sqrt(wx * wx + wy * wy);
+		var det = a.dy * b.dx - a.dx * b.dy;
+		var u = (Math.abs(det) > 1e-3) ? (wy * b.dx - wx * b.dy) / det : -1;
+		var v = (Math.abs(det) > 1e-3) ? (a.dx * wy - a.dy * wx) / det : -1;
+
+		if (u > 0 && v > 0 && u + v < 4 * (dist + a.h + b.h))
+		{
+			c.quadTo(ax - a.dx * u, ay - a.dy * u, bx, by);
+		}
+		else if (gap < Math.PI + 1e-3)
+		{
+			c.lineTo(bx, by);
+		}
+		else
+		{
+			var k = 0.66 * dist;
+			c.curveTo(ax - a.dx * k, ay - a.dy * k, bx - b.dx * k, by - b.dy * k, bx, by);
+		}
+	};
+
+	/**
+	 * Paints a crossing with the given roads and keeps its bounds for
+	 * events. Traffic lights get a small icon in the center.
+	 */
+	function paintCrossing(shape, c, x, y, w, h, ends)
 	{
 		var cx = x + w / 2;
 		var cy = y + h / 2;
+		var n = ends.length;
+		var gaps = [];
+
+		for (var i = 0; i < n; i++)
+		{
+			gaps.push((n == 1) ? 2 * Math.PI : ends[(i + 1) % n].angle - ends[i].angle +
+				((i == n - 1) ? 2 * Math.PI : 0));
+		}
 
 		c.setShadow(false);
 		c.setFillColor(mxConstants.NONE);
@@ -425,9 +529,33 @@ window.TrafficRoads = function(ui)
 		c.ellipse(x, y, w, h);
 		c.fillAndStroke();
 
+		// Asphalt across the ends of the roads and around the corners
 		c.setFillColor(getColor(shape, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
-		c.ellipse(cx - r, cy - r, 2 * r, 2 * r);
+		c.begin();
+		c.moveTo(ends[0].x + ends[0].dy * ends[0].h, ends[0].y - ends[0].dx * ends[0].h);
+
+		for (var i = 0; i < n; i++)
+		{
+			c.lineTo(ends[i].x - ends[i].dy * ends[i].h, ends[i].y + ends[i].dx * ends[i].h);
+			addCorner(c, ends[i], ends[(i + 1) % n], 0, gaps[i]);
+		}
+
+		c.close();
 		c.fill();
+
+		// Edge lines of the roads around the corners
+		var m = roads.laneWidth / 8;
+		c.setStrokeColor(roads.marking);
+		c.setStrokeWidth(0.8 * m);
+
+		for (var i = 0; i < n; i++)
+		{
+			var a = ends[i];
+			c.begin();
+			c.moveTo(a.x - a.dy * (a.h - m), a.y + a.dx * (a.h - m));
+			addCorner(c, a, ends[(i + 1) % n], m, gaps[i]);
+			c.stroke();
+		}
 
 		if (roads.isLight(shape.style))
 		{
@@ -446,6 +574,30 @@ window.TrafficRoads = function(ui)
 		}
 	};
 
+	/**
+	 * Repaints crossings that were painted before their roads were updated.
+	 */
+	var validate = graph.view.validate;
+
+	graph.view.validate = function()
+	{
+		validate.apply(this, arguments);
+
+		if (pending.length > 0)
+		{
+			var states = pending;
+			pending = [];
+
+			for (var i = 0; i < states.length; i++)
+			{
+				if (states[i].shape != null && this.getState(states[i].cell) == states[i])
+				{
+					graph.cellRenderer.redraw(states[i], true);
+				}
+			}
+		}
+	};
+
 	function CrossingShape()
 	{
 		mxEllipse.call(this);
@@ -458,15 +610,16 @@ window.TrafficRoads = function(ui)
 	 */
 	CrossingShape.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
-		var r = roads.getCrossingRadius(this.state);
+		var ends = (this.state != null && roads.getCrossingRadius(this.state) != null) ?
+			getRoadEnds(this.state) : [];
 
-		if (r == null)
+		if (ends.length == 0)
 		{
 			mxEllipse.prototype.paintVertexShape.apply(this, arguments);
 		}
 		else
 		{
-			paintCrossing(this, c, x, y, w, h, r);
+			paintCrossing(this, c, x, y, w, h, ends);
 		}
 	};
 
@@ -482,15 +635,16 @@ window.TrafficRoads = function(ui)
 	 */
 	LightShape.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
-		var r = roads.getCrossingRadius(this.state);
+		var ends = (this.state != null && roads.getCrossingRadius(this.state) != null) ?
+			getRoadEnds(this.state) : [];
 
-		if (r == null)
+		if (ends.length == 0)
 		{
 			mxLabel.prototype.paintVertexShape.apply(this, arguments);
 		}
 		else
 		{
-			paintCrossing(this, c, x, y, w, h, r);
+			paintCrossing(this, c, x, y, w, h, ends);
 		}
 	};
 
@@ -501,6 +655,45 @@ window.TrafficRoads = function(ui)
 		return (graph.model.isVertex(state.cell) && roads.isCrossing(state.style)) ?
 			((state.style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_LABEL) ? LightShape : CrossingShape) :
 			getShapeConstructor.apply(this, arguments);
+	};
+
+	var getAllConnectionConstraints = graph.getAllConnectionConstraints;
+
+	/**
+	 * Junctions have no fixed connection points.
+	 */
+	graph.getAllConnectionConstraints = function(terminal, source)
+	{
+		return (terminal != null && roads.isJunction(terminal.style)) ? null :
+			getAllConnectionConstraints.apply(this, arguments);
+	};
+
+	var getConnectionConstraintForPoint = graph.getConnectionConstraintForPoint;
+
+	graph.getConnectionConstraintForPoint = function(state, x, y)
+	{
+		return (state != null && roads.isJunction(state.style)) ? null :
+			getConnectionConstraintForPoint.apply(this, arguments);
+	};
+
+	var getOutlineConstraint = graph.getOutlineConstraint;
+
+	graph.getOutlineConstraint = function(point, terminalState, me)
+	{
+		return (terminalState != null && roads.isJunction(terminalState.style)) ?
+			new mxConnectionConstraint() : getOutlineConstraint.apply(this, arguments);
+	};
+
+	var getConnectionConstraint = graph.getConnectionConstraint;
+
+	/**
+	 * Roads connect to the outline of junctions, also with fixed connection
+	 * points in their style.
+	 */
+	graph.getConnectionConstraint = function(edge, terminal, source)
+	{
+		return (terminal != null && roads.isJunction(terminal.style)) ?
+			new mxConnectionConstraint() : getConnectionConstraint.apply(this, arguments);
 	};
 
 	var getPerimeterFunction = graph.view.getPerimeterFunction;
@@ -531,56 +724,64 @@ window.TrafficRoads = function(ui)
 	};
 
 	/**
-	 * Updates crossings and their roads when roads are connected,
-	 * disconnected, added, removed or restyled, as their size follows from
-	 * the roads.
+	 * Updates junctions and their roads when roads are connected,
+	 * disconnected, added, removed, moved or restyled, or junctions are moved
+	 * or restyled, as crossings follow from their roads and roads paint stop
+	 * and give-way lines for their junctions.
 	 */
 	graph.model.addListener(mxEvent.CHANGE, function(sender, evt)
 	{
 		var changes = evt.getProperty('edit').changes;
 		var model = graph.model;
-		var crossings = new Set();
+		var junctions = new Set();
 
 		function add(cell)
 		{
 			if (cell != null && model.isVertex(cell))
 			{
-				crossings.add(cell);
+				junctions.add(cell);
 			}
 		};
 
 		for (var i = 0; i < changes.length; i++)
 		{
 			var change = changes[i];
+			var cell = (change instanceof mxChildChange) ? change.child : change.cell;
 
 			if (change instanceof mxTerminalChange)
 			{
 				add(change.terminal);
 				add(change.previous);
 			}
-			else if (change instanceof mxStyleChange || change instanceof mxChildChange)
+			else if (cell != null && (change instanceof mxStyleChange || change instanceof mxChildChange ||
+				change instanceof mxGeometryChange))
 			{
-				var cell = (change instanceof mxChildChange) ? change.child : change.cell;
-
-				if (cell != null && model.isEdge(cell))
+				if (model.isEdge(cell))
 				{
 					add(cell.getTerminal(true));
 					add(cell.getTerminal(false));
 				}
-				else if (change instanceof mxStyleChange)
+				else if (!(change instanceof mxChildChange))
 				{
 					add(cell);
+
+					// Directions of the roads at the other ends change
+					for (var j = 0; change instanceof mxGeometryChange && j < model.getEdgeCount(cell); j++)
+					{
+						var edge = model.getEdgeAt(cell, j);
+						add(model.getTerminal(edge, model.getTerminal(edge, true) != cell));
+					}
 				}
 			}
 		}
 
 		var states = [];
 
-		crossings.forEach(function(cell)
+		junctions.forEach(function(cell)
 		{
 			var state = graph.view.getState(cell);
 
-			if (state != null && roads.isCrossing(state.style))
+			if (state != null)
 			{
 				graph.view.invalidate(cell, false, true);
 				states.push(state);
@@ -597,71 +798,19 @@ window.TrafficRoads = function(ui)
 				{
 					graph.cellRenderer.redraw(states[i], true);
 				}
+
+				for (var j = 0; j < model.getEdgeCount(states[i].cell); j++)
+				{
+					var edgeState = graph.view.getState(model.getEdgeAt(states[i].cell, j));
+
+					if (edgeState != null && edgeState.shape != null)
+					{
+						graph.cellRenderer.redraw(edgeState, true);
+					}
+				}
 			}
 		}
 	});
-
-	/**
-	 * Returns the palette entry for a road from left to right.
-	 */
-	function createRoadEntry(sidebar, style, width, title)
-	{
-		return function()
-		{
-			var height = roads.getRoadWidth(graph.stylesheet.getCellStyle(style, {}));
-			var cell = new mxCell('', new mxGeometry(0, 0, width, height), style);
-			cell.geometry.setTerminalPoint(new mxPoint(0, height / 2), true);
-			cell.geometry.setTerminalPoint(new mxPoint(width, height / 2), false);
-			cell.geometry.relative = true;
-			cell.edge = true;
-
-			return sidebar.createEdgeTemplateFromCells([cell], width, height, title);
-		};
-	};
-
-	/**
-	 * Replaces the libraries with the palettes of junctions and roads, also
-	 * in sidebars created later, eg. for other themes.
-	 */
-	Sidebar.prototype.init = function()
-	{
-		this.sidebarTitles = true;
-		this.thumbWidth = 72;
-		this.thumbHeight = 36;
-
-		this.addPaletteFunctions('junctions', 'Junctions', true,
-		[
-			this.createVertexTemplateEntry(crossingStyle, 24, 24, '', 'Crossing', null, null, 'crossing'),
-			this.createVertexTemplateEntry(lightStyle, 24, 24, '', 'Traffic light', null, null, 'traffic light'),
-			this.createVertexTemplateEntry(roundaboutStyle, 60, 60, '', 'Roundabout', null, null, 'roundabout')
-		]);
-
-		this.addPaletteFunctions('roads', 'Roads', true,
-		[
-			createRoadEntry(this, getRoadStyle(1, false), 100, 'Two-way, 1+1 lanes'),
-			createRoadEntry(this, getRoadStyle(2, false), 100, 'Two-way, 2+2 lanes'),
-			createRoadEntry(this, getRoadStyle(1, true), 100, 'One-way, 1 lane'),
-			createRoadEntry(this, getRoadStyle(2, true), 100, 'One-way, 2 lanes'),
-			createRoadEntry(this, getRoadStyle(3, true), 100, 'One-way, 3 lanes')
-		]);
-	};
-
-	Sidebar.prototype.createMoreShapes = function()
-	{
-		var div = document.createElement('div');
-		div.style.display = 'none';
-
-		return div;
-	};
-
-	var footers = ui.sidebar.container.getElementsByClassName('geSidebarFooter');
-
-	for (var i = 0; i < footers.length; i++)
-	{
-		footers[i].style.display = 'none';
-	}
-
-	ui.sidebar.refresh();
 
 	// Junctions in the shape picker of the hover arrows and connectors
 	ui.defaultShapePickerEntries = [
@@ -905,6 +1054,14 @@ TrafficRoads.getCrossingRadius = function(state)
 	}
 
 	return result;
+};
+
+/**
+ * Returns true for junctions: crossings, traffic lights and roundabouts.
+ */
+TrafficRoads.isJunction = function(style)
+{
+	return TrafficRoads.isCrossing(style) || TrafficRoads.isRoundabout(style);
 };
 
 TrafficRoads.isRoundabout = function(style)

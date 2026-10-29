@@ -74,9 +74,10 @@ Then open http://localhost:8000.
 - `js/roads.js` registers the road and roundabout shapes, which paint
   asphalt with edge lines, lane dividers, center lines, arrows on one-way
   roads and stop and give-way lines, and replaces the shape libraries with
-  palettes of junctions and roads. Crossings with roads are painted as wide
-  as their widest road and the roads end there, traffic lights a bit wider
-  with a small icon. It connects the ends of
+  palettes of junctions and roads. Crossings with roads are painted as the
+  asphalt between the ends of their roads with rounded corners and edge
+  lines, traffic lights a bit wider with a small icon. Junctions have no
+  fixed connection points, roads connect to their outline. It connects the ends of
   roads that are dropped on junctions. Other draw.io apps paint roads as
   plain connectors.
 - `js/simulation.js` builds the network from the cells of the current page,
