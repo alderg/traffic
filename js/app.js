@@ -662,7 +662,17 @@
 		var selects = {
 			speed: [[1, 2, 5, 10, 20, 50, 100], ['1x', '2x', '5x', '10x', '20x', '50x', '100x']],
 			vmax: [[1, 2, 3, 4, 5, 6], ['27 km/h', '54 km/h', '81 km/h', '108 km/h', '135 km/h', '162 km/h']],
-			noise: [[0, 0.1, 0.25, 0.5], ['0 %', '10 %', '25 %', '50 %']]};
+			noise: [[0, 0.1, 0.25, 0.5], ['0 %', '10 %', '25 %', '50 %']],
+			trucks: [[0, 0.1, 0.2, 0.3, 0.5], ['0 %', '10 %', '20 %', '30 %', '50 %']],
+			fast: [[0, 0.05, 0.1, 0.2, 0.3], ['0 %', '5 %', '10 %', '20 %', '30 %']]};
+		var types = document.getElementById('types');
+
+		// Trucks drive two cells per step slower, fast cars one faster
+		function updateTypes()
+		{
+			types.textContent = '\u25ac Trucks ' + Math.max(1, config.vmax - 2) * 27 + ' km/h, \u25cf cars ' +
+				config.vmax * 27 + ' km/h, \u25b6 fast cars ' + (config.vmax + 1) * 27 + ' km/h';
+		};
 
 		Object.keys(selects).forEach(function(key)
 		{
@@ -673,8 +683,11 @@
 			select.addEventListener('change', function()
 			{
 				sim.setOption(key, parseFloat(select.value));
+				updateTypes();
 			});
 		});
+
+		updateTypes();
 
 		['reroute', 'density'].forEach(function(key)
 		{

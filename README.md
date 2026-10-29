@@ -53,7 +53,12 @@ removed roads leave, the others keep their routes or look for new ones.
 ## Model
 
 Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
-accelerate, brake to the gap, dawdle, move. Cars keep their lane. They
+accelerate, brake to the gap, dawdle, move. Vehicles have their own top
+speed: trucks 2 cells per step below Max. speed (boxes), cars Max. speed
+(circles) and fast cars 1 cell per step above it (arrows with a white
+outline), with the shares of trucks and fast cars in the panel. Faster
+vehicles queue behind slower ones on roads with one lane and pass them
+where there is a free lane. Cars keep their lane. They
 change to the next lane when their lane does not allow their next turn,
 into smaller gaps closer to the end, to the left to pass slower cars, and
 back to the right when there is space, each only if no car is close behind
@@ -97,7 +102,8 @@ simulation writes a summary (cars driving, moving and standing, average
 speed, steps and time per step), the links and junctions with cars, the
 cars that stand for 10 seconds or more with their place and the events of
 the last second (spawns, lane changes, crossings, roundabouts, arrivals,
-reroutes, phases) to the console, and a warning with the junctions when no
+reroutes, phases) with the type of the vehicles and their number and
+average speed per type to the console, and a warning with the junctions when no
 car moves. `?dev=1` or `?test=1` also passes `test=1` to the editor, which
 then writes its own debug messages and has a Develop menu.
 

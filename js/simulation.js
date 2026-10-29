@@ -35,8 +35,10 @@
  * and look for another route after waiting at a junction. Cars that do not
  * arrive in their lifetime leave the network.
  *
- * Cars, traffic lights and the density of the lanes are painted into the
- * overlay pane. With debug output, a summary, the links and junctions with
+ * Trucks, cars and fast cars have their own top speed, so that faster ones
+ * pass slower ones where there is a free lane and queue behind them where
+ * there is none. Vehicles, traffic lights and the density of the lanes are
+ * painted into the overlay pane. With debug output, a summary, the links and junctions with
  * cars, the cars that stand longest and the events of the last second
  * (spawns, lane changes, crossings, roundabouts, arrivals, reroutes,
  * phases) go to the console once a second, with a warning if no car moves. The simulation never changes the diagram, only importFile
@@ -66,8 +68,14 @@ window.TrafficSimulation = function(ui, listener)
 	var maxImportSize = 20 * 1024 * 1024;
 	var maxImportExtent = 1e6;
 	var carColors = ['#e53935', '#1e88e5', '#43a047', '#8e24aa', '#fdd835', '#fb8c00'];
+
+	// Top speed of the types of vehicles in cells per step relative to the
+	// maximum speed, with the key of their share in the config
+	var vehicleTypes = [{name: 'car', dv: 0}, {name: 'truck', dv: -2, share: 'trucks'},
+		{name: 'fast', dv: 1, share: 'fast'}];
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
-	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, lifetime: 300};
+	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, lifetime: 300,
+		trucks: 0.2, fast: 0.1};
 
 	var crossingStyle = 'ellipse;aspect=fixed;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -95,7 +103,8 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		if (debug && events.length < 10000)
 		{
-			var e = {time: sim.time, event: type, car: (v != null) ? v.id : ''};
+			var e = {time: sim.time, event: type, car: (v != null) ? v.id : '',
+				type: (v != null) ? v.type.name : ''};
 
 			for (var key in data)
 			{
@@ -497,6 +506,7 @@ window.TrafficSimulation = function(ui, listener)
 	Link.prototype.chooseLane = function(v, k, cell)
 	{
 		var vmax = config.vmax;
+		var vm = getTopSpeed(v);
 		var next = v.next();
 		var left = this.out - cell;
 
@@ -509,17 +519,17 @@ window.TrafficSimulation = function(ui, listener)
 
 		if (left > 0)
 		{
-			var gap = this.getGap(k, cell, vmax);
+			var gap = this.getGap(k, cell, vm);
 
-			if (gap < Math.min(v.v + 1, vmax) && this.canChange(k, k - 1, cell, vmax) &&
-				(left > turnCells || this.allows(k - 1, next)) && this.getGap(k - 1, cell, vmax) > gap &&
+			if (gap < Math.min(v.v + 1, vm) && this.canChange(k, k - 1, cell, vmax) &&
+				(left > turnCells || this.allows(k - 1, next)) && this.getGap(k - 1, cell, vm) > gap &&
 				Math.random() < overtakeProbability)
 			{
 				return k - 1;
 			}
 
 			if (this.canChange(k, k + 1, cell, vmax) && (left > turnCells || this.allows(k + 1, next)) &&
-				this.getGap(k + 1, cell, vmax) >= Math.min(v.v + 2, vmax) && Math.random() < keepRightProbability)
+				this.getGap(k + 1, cell, vm) >= Math.min(v.v + 2, vm) && Math.random() < keepRightProbability)
 			{
 				return k + 1;
 			}
@@ -620,7 +630,8 @@ window.TrafficSimulation = function(ui, listener)
 
 				if (v != null)
 				{
-					v.v = Math.min(this.getGap(k, i, vmax), vmax, v.v + 1);
+					var vm = Math.max(1, vmax + v.type.dv);
+					v.v = Math.min(this.getGap(k, i, vm), vm, v.v + 1);
 					count++;
 
 					if (v.v > 0 && Math.random() < noise)
@@ -1142,9 +1153,10 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Car with a route of links.
 	 */
-	function Vehicle(id, route, time)
+	function Vehicle(id, route, time, type)
 	{
 		this.id = id;
+		this.type = type;
 		this.route = route;
 		this.index = 0;
 		this.dest = route[route.length - 1].to;
@@ -1171,6 +1183,37 @@ window.TrafficSimulation = function(ui, listener)
 		this.prevProgress = 0;
 		this.color = carColors[id % carColors.length];
 		this.node = null;
+		this.x = null;
+		this.y = null;
+		this.angle = 0;
+	};
+
+	/**
+	 * Returns the top speed of the given car in cells per step.
+	 */
+	function getTopSpeed(v)
+	{
+		return Math.max(1, config.vmax + v.type.dv);
+	};
+
+	/**
+	 * Returns a random type of vehicle with the shares in the config.
+	 */
+	function getRandomType()
+	{
+		var r = Math.random();
+
+		for (var i = 1; i < vehicleTypes.length; i++)
+		{
+			r -= config[vehicleTypes[i].share];
+
+			if (r < 0)
+			{
+				return vehicleTypes[i];
+			}
+		}
+
+		return vehicleTypes[0];
 	};
 
 	/**
@@ -1759,7 +1802,7 @@ window.TrafficSimulation = function(ui, listener)
 	 * it starts: the lifetime in the config, or four times the time of the
 	 * route without other cars if that is longer.
 	 */
-	function getLifetime(route)
+	function getLifetime(route, vmax)
 	{
 		var cells = 0;
 
@@ -1769,7 +1812,7 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		return Math.max(config.lifetime, Math.round(lifetimeFactor *
-			(cells / config.vmax + 3 * route.length)));
+			(cells / vmax + 3 * route.length)));
 	};
 
 	/**
@@ -1790,7 +1833,7 @@ window.TrafficSimulation = function(ui, listener)
 
 			if (route != null)
 			{
-				route[0].queue.push(new Vehicle(sim.created++, route, sim.time));
+				route[0].queue.push(new Vehicle(sim.created++, route, sim.time, getRandomType()));
 				sim.queued++;
 			}
 		}
@@ -1798,15 +1841,30 @@ window.TrafficSimulation = function(ui, listener)
 
 	function addActive(v)
 	{
-		v.end = sim.time + getLifetime(v.route);
+		v.end = sim.time + getLifetime(v.route, getTopSpeed(v));
 		record('spawn', v, {link: v.route[0].key, dest: v.dest.id, lifetime: v.end - sim.time});
 		sim.queued--;
 		sim.active.add(v);
-		v.node = document.createElementNS(mxConstants.NS_SVG, 'circle');
-		v.node.setAttribute('r', getSize(0.4, 2.5));
+
+		// Cars are circles, trucks long boxes and fast cars arrows with a
+		// white outline, turned in the direction of travel
+		if (v.type.name == 'truck')
+		{
+			v.node = createNode('rect', null, {x: -4.75, y: -2.5, width: 9.5, height: 5, rx: 1});
+		}
+		else if (v.type.name == 'fast')
+		{
+			v.node = createNode('path', null, {d: 'M 4 0 L -3.4 2.8 L -2 0 L -3.4 -2.8 Z',
+				'stroke-linejoin': 'round'});
+		}
+		else
+		{
+			v.node = createNode('circle', null, {r: getSize(0.4, 2.5)});
+		}
+
 		v.node.setAttribute('fill', v.color);
-		v.node.setAttribute('stroke', 'rgba(0,0,0,0.5)');
-		v.node.setAttribute('stroke-width', '0.5');
+		v.node.setAttribute('stroke', (v.type.name == 'fast') ? '#ffffff' : 'rgba(0,0,0,0.5)');
+		v.node.setAttribute('stroke-width', (v.type.name == 'fast') ? '0.8' : '0.5');
 		overlay.cars.appendChild(v.node);
 	};
 
@@ -2218,7 +2276,10 @@ window.TrafficSimulation = function(ui, listener)
 
 		sim.active.forEach(function(v)
 		{
-			v.node.setAttribute('r', r);
+			if (v.type.name == 'car')
+			{
+				v.node.setAttribute('r', r);
+			}
 		});
 
 		for (var i = 0; i < net.links.length; i++)
@@ -2385,6 +2446,9 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function paintCars(alpha)
 	{
+		// Shapes of other vehicles than cars are 3 units wide like cars
+		var scale = getSize(0.4, 2.5) / 3;
+
 		sim.active.forEach(function(v)
 		{
 			var pt = v.getPoint(false);
@@ -2431,9 +2495,55 @@ window.TrafficSimulation = function(ui, listener)
 				}
 			}
 
-			v.node.setAttribute('cx', pt.x);
-			v.node.setAttribute('cy', pt.y);
+			if (v.type.name == 'car')
+			{
+				v.node.setAttribute('cx', pt.x);
+				v.node.setAttribute('cy', pt.y);
+			}
+			else
+			{
+				// Keeps the direction while standing
+				var dx = (v.x != null) ? pt.x - v.x : 0;
+				var dy = (v.y != null) ? pt.y - v.y : 0;
+
+				if (dx * dx + dy * dy > 0.01)
+				{
+					v.angle = Math.atan2(dy, dx) * 180 / Math.PI;
+				}
+				else if (v.x == null)
+				{
+					v.angle = getHeading(v);
+				}
+
+				v.node.setAttribute('transform', 'translate(' + pt.x + ',' + pt.y + ') rotate(' +
+					v.angle + ') scale(' + scale + ')');
+			}
+
+			v.x = pt.x;
+			v.y = pt.y;
 		});
+	};
+
+	/**
+	 * Returns the direction of the lane or ring lane of the given car in
+	 * degrees.
+	 */
+	function getHeading(v)
+	{
+		var d = new mxPoint(1, 0);
+
+		if (v.ring != null)
+		{
+			d = v.ring.getTangent(v.cell);
+		}
+		else if (v.link != null)
+		{
+			var p0 = v.link.getPoint(v.lane, Math.max(0, v.cell - 0.5));
+			var p1 = v.link.getPoint(v.lane, Math.min(v.link.out, v.cell + 0.5));
+			d = new mxPoint(p1.x - p0.x, p1.y - p0.y);
+		}
+
+		return Math.atan2(d.y, d.x) * 180 / Math.PI;
 	};
 
 	function formatTime(t)
@@ -2584,9 +2694,20 @@ window.TrafficSimulation = function(ui, listener)
 		var stopped = [];
 		var moving = 0;
 		var speed = 0;
+		var types = {};
+
+		for (var i = 0; i < vehicleTypes.length; i++)
+		{
+			types[vehicleTypes[i].name] = {count: 0, topKmh: Math.round(3.6 * cellLength *
+				Math.max(1, config.vmax + vehicleTypes[i].dv)), kmh: 0};
+		}
 
 		sim.active.forEach(function(v)
 		{
+			var t = types[v.type.name];
+			t.count++;
+			t.kmh += (v.transit != null) ? 1 : v.v;
+
 			if (v.v > 0 || v.transit != null)
 			{
 				moving++;
@@ -2652,6 +2773,13 @@ window.TrafficSimulation = function(ui, listener)
 			return b.stopped - a.stopped;
 		});
 
+		// Average speed of each type of vehicle
+		for (var name in types)
+		{
+			types[name].kmh = (types[name].count > 0) ?
+				Math.round(3.6 * cellLength * types[name].kmh / types[name].count) : 0;
+		}
+
 		var expired = events.filter(function(e)
 		{
 			return e.event == 'expire';
@@ -2665,6 +2793,7 @@ window.TrafficSimulation = function(ui, listener)
 			arrived: sim.arrived, notArrived: sim.expired, reroutes: sim.replanned, kmh: (moving > 0) ?
 			Math.round(3.6 * cellLength * speed / sim.active.size) : 0,
 			steps: debugSteps, msPerStep: (debugSteps > 0) ? Math.round(100 * debugTime / debugSteps) / 100 : 0});
+		console.table(types);
 		console.log('Network', {junctions: net.crossings.length, links: net.links.length, lanes: net.lanes,
 			cells: net.cells, running: running, speed: config.speed});
 		console.table(links);
@@ -2674,7 +2803,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var next = v.next();
 
-			return {car: v.id, standing: v.stopped, age: sim.time - v.start, place: getPlace(v),
+			return {car: v.id, type: v.type.name, standing: v.stopped, age: sim.time - v.start, place: getPlace(v),
 				next: (next != null) ? next.key : '', dest: v.dest.id};
 		}));
 		console.table(events.slice(0, 1000));
