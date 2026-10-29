@@ -2309,9 +2309,9 @@ var TrafficOsm = (function()
 			{
 				var list = inBox(x0 - 30, y0 - 30, x1 + 30, y1 + 30);
 				var v = (list.length == 0) ? nearest(cx, cy) : null;
-				add((v != null) ? [v] : list, (a.kind[i] == 'homes') ? 'homes' : 'jobs',
-					weight * (x1 - x0) * (y1 - y0) * zoneFill / 1e4);
-				result.areas++;
+				list = (v != null) ? [v] : list;
+				add(list, (a.kind[i] == 'homes') ? 'homes' : 'jobs', weight * (x1 - x0) * (y1 - y0) * zoneFill / 1e4);
+				result.areas += (list.length > 0) ? 1 : 0;
 			}
 		}
 
