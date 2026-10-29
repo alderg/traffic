@@ -42,14 +42,18 @@
  * Trucks, cars and fast cars have their own top speed, so that faster ones
  * pass slower ones where there is a free lane and queue behind them where
  * there is none. Vehicles, traffic lights and the density of the lanes are
- * painted into the overlay pane. With debug output, a summary, the links and junctions with
- * cars, the cars that stand longest and the events of the last second
- * (spawns, lane changes, crossings, roundabouts, arrivals, reroutes,
- * phases) go to the console once a second, with a warning if no car moves. The simulation never changes the diagram, only importFile
- * inserts cells. This script runs in the window of the editor after
- * js/roads.js, whose lane geometry it uses: TrafficSimulation(ui, listener)
- * attaches the simulation to the graph of the given EditorUi and calls
- * listener with the lines of the statistics and the running state.
+ * painted into the overlay pane, and optionally labels with the cars that
+ * are on each road and junction in view, on their way there, and that
+ * entered and left. Each link and junction counts its cars for the
+ * statistics of the selection (getStats). With debug output, a summary, the
+ * links and junctions with cars, the cars that stand longest and the events
+ * of the last second (spawns, lane changes, crossings, roundabouts,
+ * arrivals, reroutes, phases) go to the console once a second, with a
+ * warning if no car moves. The simulation never changes the diagram, only
+ * importFile inserts cells. This script runs in the window of the editor
+ * after js/roads.js, whose lane geometry it uses: TrafficSimulation(ui,
+ * listener) attaches the simulation to the graph of the given EditorUi and
+ * calls listener with the lines of the statistics and the running state.
  */
 window.TrafficSimulation = function(ui, listener)
 {
@@ -63,6 +67,12 @@ window.TrafficSimulation = function(ui, listener)
 	var keepRightProbability = 0.3;
 	var turnCells = 12;
 	var lifetimeFactor = 4;
+	var tallySteps = 10;
+	var tallyBuckets = 6;
+	var maxLabels = 400;
+	var labelFont = 10;
+	var labelLine = 12;
+	var labelInterval = 500;
 	var maxStepsPerFrame = 100;
 	var maxFrameTime = 40;
 	var maxNewCarsPerStep = 10;
@@ -78,7 +88,7 @@ window.TrafficSimulation = function(ui, listener)
 	var vehicleTypes = [{name: 'car', dv: 0}, {name: 'truck', dv: -2, share: 'trucks'},
 		{name: 'fast', dv: 1, share: 'fast'}];
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
-	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, lifetime: 300,
+	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1};
 
 	var crossingStyle = 'ellipse;aspect=fixed;strokeColor=none;fillColor=' + roads.asphalt + ';';
@@ -95,6 +105,10 @@ window.TrafficSimulation = function(ui, listener)
 	var lastStats = 0;
 	var debug = false;
 	var events = [];
+	var expected = null;
+	var labels = null;
+	var labelsDirty = true;
+	var lastLabels = 0;
 	var lastDebug = 0;
 	var debugSteps = 0;
 	var debugTime = 0;
@@ -117,6 +131,97 @@ window.TrafficSimulation = function(ui, listener)
 
 			events.push(e);
 		}
+	};
+
+	/**
+	 * Counts of a link or junction that exists since the given step: the cars
+	 * that entered and left it since the start, and in the last minute in
+	 * buckets of ten steps the cars that passed, the steps that they stood
+	 * before, and the cells that cars moved and the cars that were there in
+	 * each step. Junctions count cars that arrive there as entering and cars
+	 * that start there as leaving.
+	 */
+	function Tally(since)
+	{
+		this.since = since;
+		this.slot = Math.floor(since / tallySteps);
+		this.entered = 0;
+		this.left = 0;
+		this.buckets = new Float64Array(4 * tallyBuckets);
+	};
+
+	/**
+	 * Returns the index of the bucket of the current step, with the cars that
+	 * passed, the steps they stood, the cells moved and the cars present,
+	 * and empties the buckets of the steps since the last call.
+	 */
+	Tally.prototype.get = function()
+	{
+		var slot = Math.floor(sim.time / tallySteps);
+
+		for (var s = Math.max(this.slot + 1, slot - tallyBuckets + 1); s <= slot; s++)
+		{
+			this.buckets.fill(0, 4 * (s % tallyBuckets), 4 * (s % tallyBuckets) + 4);
+		}
+
+		this.slot = Math.max(this.slot, slot);
+
+		return 4 * (this.slot % tallyBuckets);
+	};
+
+	/**
+	 * Returns the sums of the buckets with the number of steps they cover.
+	 */
+	Tally.prototype.sum = function()
+	{
+		this.get();
+		var result = {passed: 0, stood: 0, moved: 0, present: 0, steps: sim.time -
+			Math.max(this.since, (this.slot - tallyBuckets + 1) * tallySteps)};
+
+		for (var i = 0; i < this.buckets.length; i += 4)
+		{
+			result.passed += this.buckets[i];
+			result.stood += this.buckets[i + 1];
+			result.moved += this.buckets[i + 2];
+			result.present += this.buckets[i + 3];
+		}
+
+		return result;
+	};
+
+	/**
+	 * Returns the tally of the given link or junction, which is created when
+	 * it is first used, so that large networks need no memory for it.
+	 */
+	function getTally(owner)
+	{
+		if (owner.tally == null)
+		{
+			owner.tally = new Tally(owner.since);
+		}
+
+		return owner.tally;
+	};
+
+	/**
+	 * Counts the given car, which passes after it stood v.stood steps on its
+	 * link, in the given tally.
+	 */
+	function countPass(tally, v)
+	{
+		var b = tally.get();
+		tally.buckets[b]++;
+		tally.buckets[b + 1] += v.stood;
+	};
+
+	/**
+	 * Counts the given car, which drives into the junction of the given
+	 * tally after it stood v.stood steps on its link.
+	 */
+	function countEntry(tally, v)
+	{
+		tally.entered++;
+		countPass(tally, v);
 	};
 
 	/**
@@ -168,6 +273,9 @@ window.TrafficSimulation = function(ui, listener)
 		this.hues = null;
 		this.startCell = -1;
 		this.endCell = -1;
+		this.jointCells = null;
+		this.since = (sim != null) ? sim.time : 0;
+		this.tally = null;
 	};
 
 	/**
@@ -243,6 +351,30 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		return gap;
+	};
+
+	/**
+	 * Returns the number of cars that stand in a row at the end of the lanes
+	 * and the longest row in cells.
+	 */
+	Link.prototype.getQueue = function()
+	{
+		var result = {cars: 0, cells: 0};
+
+		for (var k = 0; k < this.cells.length; k++)
+		{
+			var j = this.out;
+
+			while (j >= 0 && this.cells[k][j] != null && this.cells[k][j].v == 0)
+			{
+				j--;
+			}
+
+			result.cars += this.out - j;
+			result.cells = Math.max(result.cells, this.out - j);
+		}
+
+		return result;
 	};
 
 	/**
@@ -373,8 +505,10 @@ window.TrafficSimulation = function(ui, listener)
 		v.lane = lane;
 		v.cell = cell;
 		v.wait = 0;
+		v.stood = 0;
 		v.index++;
 		this.merged = false;
+		getTally(this).entered++;
 	};
 
 	/**
@@ -385,6 +519,9 @@ window.TrafficSimulation = function(ui, listener)
 		var v = this.cells[lane][this.out];
 		this.cells[lane][this.out] = null;
 		this.vehicles--;
+		var tally = getTally(this);
+		tally.left++;
+		countPass(tally, v);
 
 		return v;
 	};
@@ -426,6 +563,7 @@ window.TrafficSimulation = function(ui, listener)
 		var t = this.transit[lane].shift();
 		t.v.transit = null;
 		t.v.curve = t.curve;
+		getTally(this.from).left++;
 		this.enter(t.v, lane, cell);
 		t.v.driven += t.v.cell;
 	};
@@ -720,6 +858,7 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				var first = this.queue.shift();
 				addActive(first);
+				getTally(this.from).left++;
 				this.enter(first, lane);
 				this.merged = true;
 			}
@@ -767,6 +906,11 @@ window.TrafficSimulation = function(ui, listener)
 					{
 						v.v--;
 					}
+
+					if (v.v == 0)
+					{
+						v.stood++;
+					}
 				}
 			}
 
@@ -793,6 +937,14 @@ window.TrafficSimulation = function(ui, listener)
 
 		this.vavg = (this.vehicles > 0) ? moved / this.vehicles : 0;
 
+		if (this.vehicles > 0)
+		{
+			var tally = getTally(this);
+			var b = tally.get();
+			tally.buckets[b + 2] += moved;
+			tally.buckets[b + 3] += this.vehicles;
+		}
+
 		for (var k = 0; k < this.cells.length; k++)
 		{
 			var top = this.cells[k][out];
@@ -802,6 +954,7 @@ window.TrafficSimulation = function(ui, listener)
 				if (top.next() == null)
 				{
 					park(this.pop(k));
+					getTally(this.to).entered++;
 				}
 				else if (config.reroute && ++top.wait % replanSteps == 0 && replan(top))
 				{
@@ -825,12 +978,15 @@ window.TrafficSimulation = function(ui, listener)
 		this.fanIn = [];
 		this.fanOut = [];
 		this.capacity = 1;
+		this.radius = 0;
 		this.joint = false;
 		this.phases = null;
 		this.phase = 0;
 		this.counter = 0;
 		this.finger = 0;
 		this.signals = null;
+		this.since = (sim != null) ? sim.time : 0;
+		this.tally = null;
 	};
 
 	/**
@@ -895,6 +1051,7 @@ window.TrafficSimulation = function(ui, listener)
 					{
 						record('cross', v, {junction: this.id, from: link.key + ':' + k,
 							to: next.key + ':' + entry.lane, steps: entry.steps});
+						countEntry(getTally(this), v);
 						next.addTransit(link.pop(k), entry.lane, entry.steps, entry.curve);
 						this.finger = (this.finger + i + 1) % green.length;
 						passed++;
@@ -927,6 +1084,7 @@ window.TrafficSimulation = function(ui, listener)
 					{
 						record('cross', v, {junction: this.id, from: link.key + ':' + k,
 							to: next.key + ':' + entry.lane, steps: entry.steps});
+						countEntry(getTally(this), v);
 						next.addTransit(link.pop(k), entry.lane, entry.steps, entry.curve, v.over);
 					}
 					else
@@ -1239,11 +1397,16 @@ window.TrafficSimulation = function(ui, listener)
 				this.rings[cars[i].ringLane][cars[i].cell] = null;
 			}
 
+			var tally = getTally(this);
+			var b = tally.get();
+			tally.buckets[b + 3] += cars.length;
+
 			for (var i = 0; i < cars.length; i++)
 			{
 				var v = cars[i];
 				v.cell = (v.cell + v.v) % n;
 				v.driven += v.v;
+				tally.buckets[b + 2] += v.v;
 				this.rings[v.ringLane][v.cell] = v;
 			}
 
@@ -1269,6 +1432,7 @@ window.TrafficSimulation = function(ui, listener)
 						this.vehicles--;
 						v.path = this.getExitPath(v, next, lane);
 						record('ringExit', v, {junction: this.id, cell: v.cell, to: next.key + ':' + lane});
+						getTally(this).left++;
 						next.enter(v, lane);
 					}
 				}
@@ -1292,6 +1456,7 @@ window.TrafficSimulation = function(ui, listener)
 						createCurveBetween(link.getPoint(k, link.out), getDirection(link.paths[k].points, false),
 						this.getPoint(0, e), this.getTangent(e)));
 					record('ringEnter', v, {junction: this.id, cell: e, from: link.key + ':' + k});
+					countEntry(getTally(this), v);
 					link.pop(k);
 					this.rings[0][e] = v;
 					v.link = null;
@@ -1348,6 +1513,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.cell = 0;
 		this.v = 0;
 		this.wait = 0;
+		this.stood = 0;
 		this.stopped = 0;
 		this.driven = 0;
 		this.over = 0;
@@ -1755,6 +1921,7 @@ window.TrafficSimulation = function(ui, listener)
 						(light > 0) ? Math.min(light, 3600) : 0);
 				}
 
+				junction.radius = Math.max(b.width, b.height) / 2;
 				addJunction(junction);
 			}
 
@@ -2093,11 +2260,13 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			v.ring.rings[v.ringLane][v.cell] = null;
 			v.ring.vehicles--;
+			getTally(v.ring).left++;
 		}
 		else
 		{
 			v.link.cells[v.lane][v.cell] = null;
 			v.link.vehicles--;
+			getTally(v.link).left++;
 		}
 
 		removeActive(v);
@@ -2116,6 +2285,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var cars = v.transit.link.transit[v.transit.lane];
 			cars.splice(cars.indexOf(v.transit), 1);
+			getTally(v.transit.link.from).left++;
 			v.transit = null;
 			removeActive(v);
 		}
@@ -2251,10 +2421,28 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		var queued = [];
 
+		// Keeps the statistics of the links that are still there
+		for (var i = 0; i < old.links.length; i++)
+		{
+			var link = net.linkMap.get(old.links[i].key);
+
+			if (link != null)
+			{
+				link.tally = old.links[i].tally;
+				link.since = old.links[i].since;
+			}
+		}
+
 		for (var i = 0; i < old.crossings.length; i++)
 		{
 			var prev = old.crossings[i];
 			var junction = net.crossingMap.get(prev.id);
+
+			if (junction != null)
+			{
+				junction.tally = prev.tally;
+				junction.since = prev.since;
+			}
 
 			if (junction != null && junction.rings == null)
 			{
@@ -2398,6 +2586,7 @@ window.TrafficSimulation = function(ui, listener)
 			transferCars(old);
 		}
 
+		labelsDirty = true;
 		paintNetwork();
 	};
 
@@ -2432,7 +2621,7 @@ window.TrafficSimulation = function(ui, listener)
 		root.style.pointerEvents = 'none';
 		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
 			bars: createNode('g', root, {}), cars: createNode('g', root, {}),
-			heads: createNode('g', root, {})};
+			heads: createNode('g', root, {}), labels: createNode('g', root, {})};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
 	};
@@ -2464,7 +2653,14 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var s = graph.view.scale;
 			var t = graph.view.translate;
-			overlay.root.setAttribute('transform', 'scale(' + s + ') translate(' + t.x + ',' + t.y + ')');
+			var transform = 'scale(' + s + ') translate(' + t.x + ',' + t.y + ')';
+
+			if (overlay.transform != transform)
+			{
+				overlay.transform = transform;
+				overlay.root.setAttribute('transform', transform);
+				labelsDirty = true;
+			}
 
 			if (overlay.scale != s)
 			{
@@ -2756,6 +2952,489 @@ window.TrafficSimulation = function(ui, listener)
 		return Math.atan2(d.y, d.x) * 180 / Math.PI;
 	};
 
+	/**
+	 * Returns the distance from the given point to the given rectangle, 0
+	 * inside.
+	 */
+	function getRectDistance(x, y, r)
+	{
+		var dx = Math.max(r.x - x, 0, x - r.x - r.width);
+		var dy = Math.max(r.y - y, 0, y - r.y - r.height);
+
+		return Math.sqrt(dx * dx + dy * dy);
+	};
+
+	/**
+	 * Returns the distance from the given point to the segment from a to b.
+	 */
+	function getSegmentDistance(x, y, a, b)
+	{
+		var dx = b.x - a.x;
+		var dy = b.y - a.y;
+		var len = dx * dx + dy * dy;
+		var t = (len > 0) ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / len)) : 0;
+
+		return Math.sqrt(Math.pow(a.x + t * dx - x, 2) + Math.pow(a.y + t * dy - y, 2));
+	};
+
+	/**
+	 * Returns the distance from the segment from a to b to the given
+	 * rectangle, 0 if they intersect.
+	 */
+	function getSegmentRectDistance(a, b, r)
+	{
+		// Clips the segment to the rectangle
+		var p = [a.x - b.x, b.x - a.x, a.y - b.y, b.y - a.y];
+		var q = [a.x - r.x, r.x + r.width - a.x, a.y - r.y, r.y + r.height - a.y];
+		var t0 = 0;
+		var t1 = 1;
+
+		for (var i = 0; i < 4 && t0 <= t1; i++)
+		{
+			if (p[i] == 0)
+			{
+				t1 = (q[i] < 0) ? -1 : t1;
+			}
+			else if (p[i] < 0)
+			{
+				t0 = Math.max(t0, q[i] / p[i]);
+			}
+			else
+			{
+				t1 = Math.min(t1, q[i] / p[i]);
+			}
+		}
+
+		if (t0 <= t1)
+		{
+			return 0;
+		}
+
+		var d = Math.min(getRectDistance(a.x, a.y, r), getRectDistance(b.x, b.y, r));
+
+		for (var i = 0; i < 4; i++)
+		{
+			d = Math.min(d, getSegmentDistance(r.x + ((i % 2 == 0) ? 0 : r.width),
+				r.y + ((i < 2) ? 0 : r.height), a, b));
+		}
+
+		return d;
+	};
+
+	/**
+	 * Uniform grid of obstacles for the labels: segments of roads with half
+	 * their width and rectangles of junctions, lights and labels.
+	 */
+	function LabelGrid(size)
+	{
+		this.size = size;
+		this.cells = new Map();
+	};
+
+	/**
+	 * Adds the given obstacle to the cells of the given bounds.
+	 */
+	LabelGrid.prototype.add = function(obstacle, x0, y0, x1, y1)
+	{
+		var s = this.size;
+
+		for (var i = Math.floor(x0 / s); i <= Math.floor(x1 / s); i++)
+		{
+			for (var j = Math.floor(y0 / s); j <= Math.floor(y1 / s); j++)
+			{
+				var key = i + ',' + j;
+				var list = this.cells.get(key);
+
+				if (list == null)
+				{
+					list = [];
+					this.cells.set(key, list);
+				}
+
+				list.push(obstacle);
+			}
+		}
+	};
+
+	LabelGrid.prototype.addSegment = function(a, b, width)
+	{
+		this.add({a: a, b: b, width: width}, Math.min(a.x, b.x) - width, Math.min(a.y, b.y) - width,
+			Math.max(a.x, b.x) + width, Math.max(a.y, b.y) + width);
+	};
+
+	LabelGrid.prototype.addRect = function(r)
+	{
+		this.add({rect: r}, r.x, r.y, r.x + r.width, r.y + r.height);
+	};
+
+	/**
+	 * Returns true if the given rectangle is closer than the given distance
+	 * to an obstacle.
+	 */
+	LabelGrid.prototype.hits = function(r, pad)
+	{
+		var s = this.size;
+
+		for (var i = Math.floor((r.x - pad) / s); i <= Math.floor((r.x + r.width + pad) / s); i++)
+		{
+			for (var j = Math.floor((r.y - pad) / s); j <= Math.floor((r.y + r.height + pad) / s); j++)
+			{
+				var list = this.cells.get(i + ',' + j);
+
+				for (var k = 0; list != null && k < list.length; k++)
+				{
+					var o = list[k];
+
+					if ((o.rect != null) ? (o.rect.x < r.x + r.width + pad && r.x < o.rect.x + o.rect.width + pad &&
+						o.rect.y < r.y + r.height + pad && r.y < o.rect.y + o.rect.height + pad) :
+						getSegmentRectDistance(o.a, o.b, r) < o.width + pad)
+					{
+						return true;
+					}
+				}
+			}
+		}
+
+		return false;
+	};
+
+	/**
+	 * Returns the roads of the network with their links, the points of their
+	 * center line, half their width and their bounds.
+	 */
+	function getRoads()
+	{
+		if (net.roads == null)
+		{
+			var map = new Map();
+			net.roads = [];
+
+			for (var i = 0; i < net.links.length; i++)
+			{
+				var link = net.links[i];
+				var id = link.key.substring(0, link.key.length - 1);
+				var road = map.get(id);
+
+				if (road == null)
+				{
+					var pts = (link.key.charAt(link.key.length - 1) == '>') ? link.points :
+						link.points.slice().reverse();
+					var b = new mxRectangle(pts[0].x, pts[0].y, 0, 0);
+
+					for (var j = 1; j < pts.length; j++)
+					{
+						b.add(new mxRectangle(pts[j].x, pts[j].y, 0, 0));
+					}
+
+					road = {id: id, links: [], points: pts, lengths: roads.getLengths(pts), width: 0, bounds: b};
+					map.set(id, road);
+					net.roads.push(road);
+				}
+
+				road.links.push(link);
+
+				for (var k = 0; k < link.offsets.length; k++)
+				{
+					road.width = Math.max(road.width, Math.abs(link.offsets[k]) + link.laneWidth / 2);
+				}
+			}
+		}
+
+		return net.roads;
+	};
+
+	/**
+	 * Returns the lines of the label of the given road or junction: the
+	 * cars that are there now and expected, and that entered and left.
+	 */
+	function getLabelText(item, counts)
+	{
+		var now = 0;
+		var next = 0;
+		var entered = 0;
+		var left = 0;
+
+		if (item.junction != null)
+		{
+			now = getJunctionCars(item.junction);
+			next = counts.junctions[item.junction.index];
+			entered = getTally(item.junction).entered;
+			left = getTally(item.junction).left;
+		}
+		else
+		{
+			for (var i = 0; i < item.road.links.length; i++)
+			{
+				var link = item.road.links[i];
+				now += link.vehicles;
+				next += counts.links[link.index];
+				entered += getTally(link).entered;
+				left += getTally(link).left;
+			}
+		}
+
+		return ['now ' + now + ' · exp ' + next, 'in ' + entered + ' · out ' + left];
+	};
+
+	/**
+	 * Returns the width of a label with the given lines in pixels.
+	 */
+	function getLabelWidth(lines)
+	{
+		return Math.ceil(0.52 * labelFont * Math.max(lines[0].length, lines[1].length)) + 8;
+	};
+
+	function clearLabels()
+	{
+		if (overlay != null)
+		{
+			clearChildren(overlay.labels);
+		}
+
+		labels = null;
+	};
+
+	/**
+	 * Places the labels of the roads and junctions in the visible part of the
+	 * diagram next to them, where they overlap no road, junction, traffic
+	 * light or other label, with room for wider text. Labels are hidden if
+	 * there are more than maxLabels in view.
+	 */
+	function placeLabels(counts)
+	{
+		clearLabels();
+		labels = {items: [], hidden: false, unplaced: 0};
+
+		var s = graph.view.scale;
+		var t = graph.view.translate;
+		var c = graph.container;
+		var view = new mxRectangle(c.scrollLeft / s - t.x, c.scrollTop / s - t.y, c.clientWidth / s, c.clientHeight / s);
+		var h = (2 * labelLine + 6) / s;
+		var pad = 3 / s;
+		var roadList = getRoads();
+		var items = [];
+
+		for (var i = 0; i < net.crossings.length; i++)
+		{
+			var junction = net.crossings[i];
+
+			if (junction.fanIn.length + junction.fanOut.length > 0 && mxUtils.contains(view, junction.x, junction.y))
+			{
+				items.push({junction: junction});
+			}
+		}
+
+		for (var i = 0; i < roadList.length; i++)
+		{
+			if (mxUtils.intersects(view, roadList[i].bounds))
+			{
+				items.push({road: roadList[i]});
+			}
+		}
+
+		if (items.length > maxLabels)
+		{
+			labels.hidden = true;
+
+			return;
+		}
+
+		// Obstacles near the view
+		var area = new mxRectangle(view.x - view.width / 2, view.y - view.height / 2, 2 * view.width, 2 * view.height);
+		var grid = new LabelGrid(Math.max(view.width, view.height) / 10);
+
+		for (var i = 0; i < roadList.length; i++)
+		{
+			var road = roadList[i];
+
+			if (mxUtils.intersects(area, road.bounds))
+			{
+				for (var j = 1; j < road.points.length; j++)
+				{
+					grid.addSegment(road.points[j - 1], road.points[j], road.width);
+				}
+			}
+		}
+
+		for (var i = 0; i < net.crossings.length; i++)
+		{
+			var junction = net.crossings[i];
+			var r = junction.radius;
+
+			if (r > 0 && mxUtils.contains(area, junction.x, junction.y))
+			{
+				grid.addRect(new mxRectangle(junction.x - r, junction.y - r, 2 * r, 2 * r));
+			}
+
+			for (var j = 0; junction.signals != null && j < junction.signals.length; j++)
+			{
+				var signal = junction.signals[j];
+				var hs = getHeadScale();
+				grid.addRect(new mxRectangle(signal.x - 3 * hs, signal.y - 7 * hs, 6 * hs, 14 * hs));
+			}
+		}
+
+		// Junctions first, then the roads from the shortest
+		items.sort(function(a, b)
+		{
+			return ((a.road != null) ? a.road.lengths[a.road.lengths.length - 1] : -1) -
+				((b.road != null) ? b.road.lengths[b.road.lengths.length - 1] : -1);
+		});
+
+		for (var i = 0; i < items.length; i++)
+		{
+			var item = items[i];
+			var lines = getLabelText(item, counts);
+
+			// Room for one more digit in each number
+			item.px = getLabelWidth(lines) + Math.ceil(0.6 * labelFont);
+			var rect = findLabelPlace(item, grid, item.px / s, h, pad);
+
+			if (rect != null)
+			{
+				grid.addRect(rect);
+				item.rect = rect;
+
+				// Junctions have a line to their label
+				if (item.junction != null)
+				{
+					var j = item.junction;
+					var x = Math.max(rect.x, Math.min(j.x, rect.x + rect.width));
+					var y = Math.max(rect.y, Math.min(j.y, rect.y + rect.height));
+					var d = Math.sqrt((x - j.x) * (x - j.x) + (y - j.y) * (y - j.y));
+					var f = (d > 0) ? Math.min(1, j.radius / d) : 0;
+					var line = createNode('line', overlay.labels, {x1: j.x + (x - j.x) * f, y1: j.y + (y - j.y) * f,
+						x2: x, y2: y, 'stroke-width': 1 / s});
+					line.style.stroke = 'light-dark(#59636e,#9aa0a6)';
+				}
+
+				item.node = createNode('g', overlay.labels, {transform: 'translate(' + rect.x + ',' + rect.y +
+					') scale(' + (1 / s) + ')'});
+				var bg = createNode('rect', item.node, {width: item.px, height: 2 * labelLine + 6, rx: 4});
+				bg.style.fill = 'light-dark(rgba(255,255,255,0.92),rgba(32,33,36,0.92))';
+				bg.style.stroke = 'light-dark(#c4c7c5,#5f6368)';
+				bg.style.strokeWidth = '1';
+				item.texts = [];
+
+				for (var j = 0; j < 2; j++)
+				{
+					var text = createNode('text', item.node, {x: 4, y: 3 + labelLine * (j + 1) - 2,
+						'font-size': labelFont, 'font-family': 'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif'});
+					text.style.fill = (j == 0) ? 'light-dark(#1f2328,#e6e7e9)' : 'light-dark(#59636e,#9aa0a6)';
+					text.style.fontVariantNumeric = 'tabular-nums';
+					item.texts.push(text);
+				}
+
+				labels.items.push(item);
+			}
+			else
+			{
+				labels.unplaced++;
+			}
+		}
+	};
+
+	/**
+	 * Returns the rectangle of the given width and height for the label of
+	 * the given road or junction next to it that hits no obstacle in the
+	 * given grid, or null.
+	 */
+	function findLabelPlace(item, grid, w, h, pad)
+	{
+		var anchors = [];
+
+		if (item.junction != null)
+		{
+			for (var i = 0; i < 8; i++)
+			{
+				var a = -Math.PI / 4 - i * Math.PI / 4;
+				anchors.push({x: item.junction.x, y: item.junction.y, nx: Math.cos(a), ny: Math.sin(a),
+					dist: item.junction.radius + 8 / graph.view.scale});
+			}
+		}
+		else
+		{
+			var road = item.road;
+			var pts = road.points;
+			var len = road.lengths[road.lengths.length - 1];
+			var fractions = [0.5, 0.35, 0.65, 0.2, 0.8];
+
+			for (var i = 0; i < fractions.length; i++)
+			{
+				var d = fractions[i] * len;
+				var j = 1;
+
+				while (j < pts.length - 1 && road.lengths[j] < d)
+				{
+					j++;
+				}
+
+				var seg = roads.getDistance(pts[j - 1], pts[j]);
+
+				if (seg > 0)
+				{
+					var p = roads.getPointAt(pts, road.lengths, d) || pts[j];
+					var dx = (pts[j].x - pts[j - 1].x) / seg;
+					var dy = (pts[j].y - pts[j - 1].y) / seg;
+					anchors.push({x: p.x, y: p.y, nx: -dy, ny: dx, dist: road.width});
+					anchors.push({x: p.x, y: p.y, nx: dy, ny: -dx, dist: road.width});
+				}
+			}
+		}
+
+		for (var k = 0; k < 2; k++)
+		{
+			for (var i = 0; i < anchors.length; i++)
+			{
+				var a = anchors[i];
+				var ext = w / 2 * Math.abs(a.nx) + h / 2 * Math.abs(a.ny);
+				var dist = a.dist + 2 * pad + ext + k * h;
+				var r = new mxRectangle(a.x + a.nx * dist - w / 2, a.y + a.ny * dist - h / 2, w, h);
+
+				if (!grid.hits(r, pad))
+				{
+					return r;
+				}
+			}
+		}
+
+		return null;
+	};
+
+	/**
+	 * Updates the text of the labels and places them again if the view or
+	 * the network changed or if the text no longer fits.
+	 */
+	function updateLabels()
+	{
+		var counts = getExpected();
+
+		if (labelsDirty || labels == null)
+		{
+			labelsDirty = false;
+			placeLabels(counts);
+		}
+
+		for (var i = 0; i < labels.items.length; i++)
+		{
+			var item = labels.items[i];
+			var lines = getLabelText(item, counts);
+
+			if (getLabelWidth(lines) > item.px)
+			{
+				labelsDirty = true;
+			}
+
+			for (var j = 0; j < 2; j++)
+			{
+				if (item.texts[j].textContent != lines[j])
+				{
+					item.texts[j].textContent = lines[j];
+				}
+			}
+		}
+	};
+
 	function formatTime(t)
 	{
 		var m = Math.floor(t / 60) % 60;
@@ -2812,6 +3491,12 @@ window.TrafficSimulation = function(ui, listener)
 			}
 
 			lines.push('Reroutes: ' + sim.replanned);
+
+			if (config.labels && labels != null && (labels.hidden || labels.unplaced > 0))
+			{
+				lines.push('Labels: ' + ((labels.hidden) ? 'zoom in to show them' :
+					labels.unplaced + ' without space, zoom in to show them'));
+			}
 		}
 
 		listener(lines, running);
@@ -2867,6 +3552,12 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		paintCars((running && config.speed <= 20) ? Math.min(1, (now - lastStep) / interval) : 1);
+
+		if (config.labels && (labelsDirty || now - lastLabels >= labelInterval))
+		{
+			updateLabels();
+			lastLabels = now;
+		}
 
 		if (!running || now - lastStats > 250)
 		{
@@ -3308,6 +3999,12 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			paintNetwork();
 		}
+		else if (key == 'labels')
+		{
+			labelsDirty = true;
+			clearLabels();
+			schedule();
+		}
 	};
 
 	function invalidate()
@@ -3348,6 +4045,19 @@ window.TrafficSimulation = function(ui, listener)
 	graph.view.addListener(mxEvent.TRANSLATE, transform);
 	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, transform);
 
+	// Scrolling and resizing show other roads and junctions
+	var viewChanged = roads.guard(function()
+	{
+		if (config.labels)
+		{
+			labelsDirty = true;
+			schedule();
+		}
+	}, 'simulation view change');
+
+	mxEvent.addListener(graph.container, 'scroll', viewChanged);
+	mxEvent.addListener(window, 'resize', viewChanged);
+
 	/**
 	 * Returns the timing of the traffic light with the given ID in steps:
 	 * the number of approach axes, green, yellow and the cycle, or null.
@@ -3359,6 +4069,148 @@ window.TrafficSimulation = function(ui, listener)
 		return (crossing != null && crossing.phases != null) ? {axes: crossing.phases.length,
 			green: crossing.light, yellow: crossing.yellow,
 			cycle: crossing.phases.length * (crossing.light + crossing.yellow)} : null;
+	};
+
+	/**
+	 * Returns the cars that will drive onto each link and into each junction
+	 * on their remaining routes, including the cars waiting to start, by the
+	 * index of the links and junctions. The result is kept for the step.
+	 */
+	function getExpected()
+	{
+		if (expected == null || expected.net != net || expected.time != sim.time)
+		{
+			var links = new Int32Array(net.links.length);
+			var junctions = new Int32Array(net.crossings.length);
+
+			var add = function(v)
+			{
+				for (var i = v.index; i < v.route.length; i++)
+				{
+					var link = v.route[i];
+					links[link.index]++;
+
+					// Not the junction that the car is in or starts at
+					if (i > v.index || v.link != null)
+					{
+						junctions[link.from.index]++;
+					}
+				}
+
+				if (v.dest != null && v.ring != v.dest && v.dest.index < junctions.length &&
+					net.crossings[v.dest.index] == v.dest)
+				{
+					junctions[v.dest.index]++;
+				}
+			};
+
+			sim.active.forEach(add);
+
+			for (var i = 0; i < net.links.length; i++)
+			{
+				var queue = net.links[i].queue;
+
+				for (var j = 0; j < queue.length; j++)
+				{
+					add(queue[j]);
+				}
+			}
+
+			expected = {net: net, time: sim.time, links: links, junctions: junctions};
+		}
+
+		return expected;
+	};
+
+	/**
+	 * Returns the cars that are in the given junction: on their way through
+	 * a crossing or on a roundabout.
+	 */
+	function getJunctionCars(junction)
+	{
+		var cars = (junction.rings != null) ? junction.vehicles : 0;
+
+		for (var i = 0; i < junction.fanOut.length; i++)
+		{
+			for (var k = 0; k < junction.fanOut[i].transit.length; k++)
+			{
+				cars += junction.fanOut[i].transit[k].length;
+			}
+		}
+
+		return cars;
+	};
+
+	/**
+	 * Returns the statistics of the given tally with the given cars, queue
+	 * and expected cars: the cars, the cars that entered and left since the
+	 * start and that are expected, their average speed in km/h if there is a
+	 * speed, the cars that passed per hour, the seconds that they stood on
+	 * average before and the cars standing in a row with the longest row in
+	 * meters.
+	 */
+	function getTallyStats(tally, cars, queue, next, speed)
+	{
+		var t = tally.sum();
+
+		return {cars: cars, entered: tally.entered, left: tally.left, expected: next,
+			speed: (speed && t.present > 0) ? 3.6 * cellLength * t.moved / t.present : null,
+			throughput: (t.steps > 0) ? 3600 * t.passed / t.steps : null,
+			wait: (t.passed > 0) ? t.stood / t.passed : null, queue: queue.cars,
+			queueLength: queue.cells * cellLength, steps: t.steps};
+	};
+
+	/**
+	 * Returns the statistics of the last minute and the current state of the
+	 * road or junction with the given ID, as columns with a name, or null:
+	 * one for a junction with the queues of all roads to it, one for each
+	 * direction of a road.
+	 */
+	function getStats(id)
+	{
+		if (net == null || sim == null)
+		{
+			return null;
+		}
+
+		var junction = net.crossingMap.get(id);
+		var counts = getExpected();
+
+		if (junction != null)
+		{
+			var queue = {cars: 0, cells: 0};
+
+			for (var i = 0; i < junction.fanIn.length; i++)
+			{
+				var q = junction.fanIn[i].getQueue();
+				queue.cars += q.cars;
+				queue.cells = Math.max(queue.cells, q.cells);
+			}
+
+			var stats = getTallyStats(getTally(junction), getJunctionCars(junction), queue,
+				counts.junctions[junction.index], junction.rings != null);
+			stats.name = (junction.rings != null) ? 'Roundabout' : ((junction.phases != null) ?
+				'Traffic light' : ((junction.joint) ? 'Joint' : 'Crossing'));
+
+			return [stats];
+		}
+
+		var result = [];
+
+		for (var d = 0; d < 2; d++)
+		{
+			var link = net.linkMap.get(id + ((d == 0) ? '>' : '<'));
+
+			if (link != null)
+			{
+				var stats = getTallyStats(getTally(link), link.vehicles, link.getQueue(),
+					counts.links[link.index], true);
+				stats.name = (d == 0) ? '\u2192 Forward' : '\u2190 Backward';
+				result.push(stats);
+			}
+		}
+
+		return (result.length > 0) ? result : null;
 	};
 
 	/**
@@ -3374,5 +4226,5 @@ window.TrafficSimulation = function(ui, listener)
 
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
-		importFile: importFile, getLight: getLight, setDebug: setDebug};
+		importFile: importFile, getLight: getLight, getStats: getStats, setDebug: setDebug};
 };

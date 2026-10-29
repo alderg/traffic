@@ -40,7 +40,20 @@ are driving.
   green time of traffic lights with their cycle, the lanes of roundabouts,
   the lanes per direction and direction of roads, and for one road each
   lane with its direction and turns. Changes apply at once, also while
-  cars are driving, and can be undone.
+  cars are driving, and can be undone. Below are live statistics of the
+  first selected junction and each direction of the first selected road:
+  the cars there now and on their way there on their routes, the cars that
+  entered and left since the start, and over the last minute their speed,
+  throughput and waiting time before they left, and the queue standing at
+  the end of the roads. Junctions count cars that arrive there as entering
+  and cars that start there as leaving.
+- Show counts at roads and junctions in the panel labels each road and
+  junction in view with the cars there now (now), on their way there
+  (exp), and that entered (in) and left (out) since the start, live while
+  the cars drive and the network changes. The labels are placed next to
+  their road or, with a line, their junction where they overlap no road,
+  junction, traffic light or other label, and are hidden when more than
+  400 roads and junctions are in view.
 - Roads are sharp, rounded or curved like connectors, in the format panel,
   the inline toolbar and the waypoints menu, and their lanes, markings and
   cars follow the waypoints and curves. Rounded corners of roads start at

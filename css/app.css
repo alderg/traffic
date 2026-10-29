@@ -150,10 +150,42 @@ select, input[type="number"] {
 	font-variant-numeric: tabular-nums;
 }
 
+.cell-stats {
+	width: 100%;
+	margin: 0 0 4px;
+	border-collapse: collapse;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+
+.cell-stats th,
+.cell-stats td {
+	padding: 2px 0 2px 8px;
+	text-align: right;
+	font-weight: normal;
+	white-space: nowrap;
+}
+
+.cell-stats th:first-child,
+.cell-stats td:first-child {
+	padding-left: 0;
+	text-align: left;
+	color: var(--muted);
+}
+
+.cell-stats thead th {
+	color: var(--muted);
+	border-bottom: 1px solid var(--border);
+}
+
 .hint {
 	margin: 0 0 8px;
 	font-size: 12px;
 	color: var(--muted);
+}
+
+.check-hint {
+	margin: 2px 0 0 22px;
 }
 
 .lane-list {

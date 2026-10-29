@@ -28,6 +28,9 @@
 		<label class="row"><span>Dawdling</span><select id="noise" disabled></select></label>
 		<label class="check"><input id="reroute" type="checkbox" disabled> Reroute when waiting</label>
 		<label class="check"><input id="density" type="checkbox" disabled> Show density</label>
+		<label class="check"><input id="labels" type="checkbox" disabled> Show counts at roads and junctions</label>
+		<p id="labels-hint" class="hint check-hint" hidden>Now: cars there, exp: cars on their way there,
+			in and out: cars that entered and left since the start.</p>
 		<label class="check"><input id="debug" type="checkbox"> Debug output</label>
 	</section>
 	<section>
@@ -36,6 +39,14 @@
 	<section id="selection">
 		<h2>Selection</h2>
 		<p id="selection-hint" class="hint">Select a junction or a road to change it.</p>
+		<div id="cell-stats" hidden>
+			<table class="cell-stats"><thead></thead><tbody></tbody></table>
+			<p class="hint">Expected are the cars on their way there, entered and left count
+				since the start, junctions also cars that arrive and start there. Speed,
+				throughput and waiting are over the last minute: waiting is how long cars stood
+				on a road before they left it, the queue the cars standing in a row at the end
+				of the roads.</p>
+		</div>
 		<div id="junction-fields" hidden>
 			<label class="row"><span>Junction</span><select id="junction-type">
 				<option value="crossing">Crossing</option>

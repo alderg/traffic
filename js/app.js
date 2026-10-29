@@ -31,7 +31,7 @@
 	var ui = null;
 	var sim = null;
 	var roads = null;
-	var updateCycle = null;
+	var updateSelection = null;
 	var logged = new WeakSet();
 
 	/**
@@ -300,10 +300,11 @@
 		stats.textContent = lines.join('\n');
 		startButton.textContent = (running) ? 'Pause' : 'Start';
 
-		// The timing of a light follows from the network after changes
-		if (updateCycle != null)
+		// The timing of a light follows from the network after changes and
+		// the statistics of the selection change while cars drive
+		if (updateSelection != null)
 		{
-			updateCycle();
+			updateSelection();
 		}
 	};
 
@@ -329,6 +330,8 @@
 		var laneFields = document.getElementById('lane-fields');
 		var laneList = document.getElementById('lane-list');
 		var lanesHint = document.getElementById('lanes-hint');
+		var cellStats = document.getElementById('cell-stats');
+		var statsHtml = '';
 		var turnNames = {l: ['Left', '\u21b0'], s: ['Straight', '\u2191'], r: ['Right', '\u21b1']};
 		var junctions = [];
 		var edges = [];
@@ -340,7 +343,7 @@
 			return n + ' ' + name + ((n == 1) ? '' : 's');
 		};
 
-		updateCycle = function()
+		function updateCycle()
 		{
 			var light = (junctions.length > 0) ? sim.getLight(junctions[0].id) : null;
 			var text = (light != null) ? 'Green ' + light.green + ' s, yellow ' + light.yellow +
@@ -351,6 +354,67 @@
 			{
 				cycle.textContent = text;
 			}
+		};
+
+		function format(value, digits, unit)
+		{
+			return (value == null) ? '\u2013' : value.toFixed(digits) + unit;
+		};
+
+		/**
+		 * Shows the statistics of the first selected junction and road in a
+		 * table with a column for the junction and each direction of the road.
+		 */
+		function showStats()
+		{
+			var columns = [];
+
+			[junctions[0], edges[0]].forEach(function(cell)
+			{
+				var stats = (cell != null) ? sim.getStats(cell.id) : null;
+				columns = columns.concat(stats || []);
+			});
+
+			var rows = [['Cars now', 'cars', 0, ''], ['Expected', 'expected', 0, ''],
+				['Entered', 'entered', 0, ''], ['Left', 'left', 0, ''], ['Speed', 'speed', 0, ' km/h'],
+				['Throughput', 'throughput', 0, '/h'], ['Waiting', 'wait', 1, ' s']];
+			var html = '<tr><th></th>' + columns.map(function(c)
+			{
+				return '<th>' + c.name + '</th>';
+			}).join('') + '</tr>';
+
+			for (var i = 0; i < rows.length; i++)
+			{
+				html += '<tr><td>' + rows[i][0] + '</td>' + columns.map(function(c)
+				{
+					return '<td>' + format(c[rows[i][1]], rows[i][2], rows[i][3]) + '</td>';
+				}).join('') + '</tr>';
+			}
+
+			html += '<tr><td>Queue</td>' + columns.map(function(c)
+			{
+				return '<td>' + c.queue + ((c.queue > 0) ? ' (' + c.queueLength.toFixed(0) + ' m)' : '') + '</td>';
+			}).join('') + '</tr>';
+
+			cellStats.hidden = columns.length == 0;
+
+			if (html != statsHtml)
+			{
+				statsHtml = html;
+				var table = cellStats.querySelector('table');
+				table.tHead.innerHTML = html.substring(0, html.indexOf('</tr>') + 5);
+				table.tBodies[0].innerHTML = html.substring(html.indexOf('</tr>') + 5);
+			}
+		};
+
+		updateSelection = function()
+		{
+			if (junctions.length > 0)
+			{
+				updateCycle();
+			}
+
+			showStats();
 		};
 
 		/**
@@ -452,6 +516,8 @@
 
 				updateCycle();
 			}
+
+			showStats();
 
 			if (edges.length > 0)
 			{
@@ -689,7 +755,9 @@
 
 		updateTypes();
 
-		['reroute', 'density'].forEach(function(key)
+		var labelsHint = document.getElementById('labels-hint');
+
+		['reroute', 'density', 'labels'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];
@@ -697,8 +765,11 @@
 			checkbox.addEventListener('change', function()
 			{
 				sim.setOption(key, checkbox.checked);
+				labelsHint.hidden = !config.labels;
 			});
 		});
+
+		labelsHint.hidden = !config.labels;
 
 		startButton.addEventListener('click', function()
 		{
