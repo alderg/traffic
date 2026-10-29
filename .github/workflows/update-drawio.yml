@@ -1,0 +1,140 @@
+name: Update draw.io
+
+# Keeps the drawio submodule on the latest release of jgraph/drawio. Pull
+# requests are turned off for this repository, so the update is committed
+# straight to main, after the app was checked with it, and the site is
+# rebuilt, as pushes with the GITHUB_TOKEN start no other workflows.
+on:
+  schedule:
+    - cron: "0 8 * * *" # daily at 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "draw.io release tag, eg. v32.6.1. Empty for the latest release."
+        required: false
+        type: string
+
+permissions:
+  contents: write # pushes the update to main
+  actions: write # starts pages.yml
+
+# One update at a time, the next waits
+concurrency:
+  group: update-drawio
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      # main as it is now, without the submodule, which is fetched only for
+      # a new release
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check for a new release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-$(gh api repos/jgraph/drawio/releases/latest --jq .tag_name)}"
+          if ! [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "::error::Not a release tag of draw.io: $TAG"
+            exit 1
+          fi
+          # The commit of the tag, which is the peeled line for annotated tags
+          COMMIT="$(git ls-remote --tags https://github.com/jgraph/drawio.git "refs/tags/$TAG" "refs/tags/$TAG^{}" |
+            sort -k 2 | tail -n 1 | cut -f 1)"
+          if [ -z "$COMMIT" ]; then
+            echo "::error::jgraph/drawio has no tag $TAG"
+            exit 1
+          fi
+          CURRENT="$(git rev-parse HEAD:drawio)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT" = "$COMMIT" ]; then
+            echo "drawio is at $TAG ($COMMIT) already, nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drawio is at $CURRENT, $TAG is $COMMIT."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only the tag, without history, like the update in the README
+      - name: Fetch the release into the submodule
+        if: steps.check.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          git -C drawio init -q
+          git -C drawio remote add origin https://github.com/jgraph/drawio.git
+          git -C drawio fetch -q --depth 1 --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          git -C drawio checkout -q --detach "refs/tags/$TAG"
+          git -C drawio log -1 --format='%H %s'
+
+      - name: Check the files that the app loads from draw.io
+        if: steps.check.outputs.changed == 'true'
+        working-directory: drawio/src/main/webapp
+        run: |
+          for f in index.html js/bootstrap.js js/main.js js/PreConfig.js js/PostConfig.js js/app.min.js \
+            styles/grapheditor.css resources/dia.txt; do
+            if [ ! -s "$f" ]; then
+              echo "::error::draw.io has no $f any more"
+              exit 1
+            fi
+          done
+          # js/app.js gets the editor with Draw.loadPlugin
+          if ! grep -q 'loadPlugin' js/app.min.js; then
+            echo "::error::draw.io has no Draw.loadPlugin any more"
+            exit 1
+          fi
+
+      - name: Smoke test the app with the release
+        if: steps.check.outputs.changed == 'true'
+        env:
+          NODE_PATH: ${{ runner.temp }}/smoke/node_modules
+        run: |
+          npm install --silent --no-save --no-package-lock --prefix "$RUNNER_TEMP/smoke" playwright-core@1.61.1
+          python3 -m http.server 8000 --bind 127.0.0.1 > /dev/null 2>&1 &
+          node tools/smoke-test.js http://127.0.0.1:8000/index.html
+
+      # Rebases onto main if it moved meanwhile and fails if the update does
+      # not apply, eg. because the submodule changed there too
+      - name: Commit and push to main
+        id: push
+        if: steps.check.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add drawio
+          git commit -q -m "Update draw.io to $TAG"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            git fetch -q origin main
+            if ! git rebase -q origin/main; then
+              git rebase --abort
+              echo "::error::main moved and the update to $TAG does not apply to it any more"
+              exit 1
+            fi
+            if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
+              echo "main has the update already."
+              echo "pushed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::Could not push the update to $TAG to main"
+          exit 1
+
+      - name: Rebuild the site
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

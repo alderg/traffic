@@ -427,17 +427,43 @@ then writes its own debug messages and has a Develop menu.
   outlines are made once per type and degree, as a new path paints faster
   than a new transform. It never changes the diagram, except for imports.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
-  tag. To update it:
+  tag, without history. To update it by hand:
 
   ```bash
-  git -C drawio fetch --depth 1 origin tag v32.6.2
-  git -C drawio checkout v32.6.2
+  git -C drawio fetch --depth 1 origin tag v32.6.1
+  git -C drawio checkout v32.6.1
   git add drawio
-  git commit -m "Updates draw.io to 32.6.2"
+  git commit -m "Update draw.io to v32.6.1"
+  ```
+
+- `.github/workflows/update-drawio.yml` keeps it on the latest release of
+  jgraph/drawio, daily at 08:00 UTC: if the submodule is at an older tag, it
+  fetches only the new tag into it, checks that the files the page loads
+  from draw.io are there, opens the page with `tools/smoke-test.js` (headless
+  Chrome: the editor starts, the simulation attaches, the Small example
+  opens and cars drive, without errors), commits "Update draw.io to <tag>"
+  as github-actions[bot] straight to `main` and pushes it. If `main` moved
+  meanwhile, it rebases onto it, and fails if the submodule changed there
+  too. Pushes with the `GITHUB_TOKEN` start no workflows, so it then starts
+  `pages.yml` with `gh workflow run`. Runs wait for each other. Start it by
+  hand, also for a given tag, with:
+
+  ```bash
+  gh workflow run update-drawio.yml
+  gh workflow run update-drawio.yml -f tag=v32.6.1
+  ```
+
+  The smoke test runs locally against a served checkout:
+
+  ```bash
+  python3 -m http.server 8000 &
+  npm install --no-save --prefix /tmp/smoke playwright-core@1.61.1
+  NODE_PATH=/tmp/smoke/node_modules node tools/smoke-test.js http://localhost:8000/index.html
   ```
 
 - `.github/workflows/pages.yml` publishes the page and
-  `drawio/src/main/webapp` to GitHub Pages on each push to `main`.
+  `drawio/src/main/webapp` to GitHub Pages on each push to `main` and when
+  it is started (`workflow_dispatch`), eg. by the update of draw.io.
 
 ## License
 
