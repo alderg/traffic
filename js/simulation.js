@@ -2319,11 +2319,11 @@ window.TrafficSimulation = function(ui, listener)
 				if (state != signal.state)
 				{
 					signal.state = state;
-					signal.bar.setAttribute('stroke', lampColors[2 - state][0]);
+					signal.bar.setAttribute('stroke', lampColors[state][0]);
 
 					for (var k = 0; k < 3; k++)
 					{
-						signal.lamps[k].setAttribute('fill', lampColors[k][(k == 2 - state) ? 0 : 1]);
+						signal.lamps[k].setAttribute('fill', lampColors[k][(k == state) ? 0 : 1]);
 					}
 				}
 			}
