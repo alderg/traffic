@@ -254,7 +254,7 @@ window.TrafficSimulation = function(ui, listener)
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1, passEitherSide: false, passOncoming: true, roads: true, lights: false, vehicles: true,
 		mapBackground: false, center: false, adaptive: true, colors: 'blueRed', trips: 'random',
-		through: defaultThroughShare, zones: false};
+		through: defaultThroughShare, zones: false, roadOpacity: 1};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -4464,6 +4464,7 @@ window.TrafficSimulation = function(ui, listener)
 		dirty = false;
 		net = createNetwork();
 		readTrips();
+		showRoadOpacity();
 		record('network', null, {junctions: net.crossings.length, links: net.links.length,
 			lanes: net.lanes, cells: net.cells});
 
@@ -4515,6 +4516,7 @@ window.TrafficSimulation = function(ui, listener)
 		overlay.cars.style.display = (config.vehicles) ? '' : 'none';
 		overlay.heads.style.display = (config.lights) ? '' : 'none';
 		graph.view.getDrawPane().style.display = (config.roads) ? '' : 'none';
+		showRoadOpacity();
 		outlines = {scale: 0};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
@@ -6538,6 +6540,10 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			schedule();
 		}
+		else if (key == 'roadOpacity')
+		{
+			showRoadOpacity();
+		}
 		else if (key == 'roads' && overlay != null)
 		{
 			// Hidden roads and junctions are neither painted nor hit, and the
@@ -6698,6 +6704,32 @@ window.TrafficSimulation = function(ui, listener)
 		})};
 	};
 
+	/**
+	 * Fades the roads and junctions, all that draw.io draws in its draw pane,
+	 * with roadOpacity of the config, without changing their styles, so that
+	 * the map shows through while the vehicles, the stop bars, the heads of
+	 * the traffic lights, the route and the selection in the overlay pane
+	 * stay opaque. Each cell is faded on its own (roadOpacityRule), as an
+	 * opacity of the whole pane made the browser paint all roads under each
+	 * moving vehicle again, at a third of the frame rate. Opaque roads get no
+	 * opacity at all.
+	 */
+	function showRoadOpacity()
+	{
+		var value = Math.max(0, Math.min(1, config.roadOpacity));
+		var pane = graph.view.getDrawPane();
+
+		if (pane != null)
+		{
+			pane.classList.toggle('trafficRoadsFaded', value < 1);
+			pane.style.setProperty('--traffic-road-opacity', String(value));
+		}
+	};
+
+	var roadOpacityRule = document.createElement('style');
+	roadOpacityRule.textContent = 'g.trafficRoadsFaded > * { opacity: var(--traffic-road-opacity); }';
+	document.head.appendChild(roadOpacityRule);
+
 	function invalidate()
 	{
 		if (overlay != null)
@@ -6744,6 +6776,7 @@ window.TrafficSimulation = function(ui, listener)
 	// Paints the vehicles in the colors of the theme, also when paused
 	ui.addListener('darkModeChanged', function()
 	{
+		showRoadOpacity();
 		schedule();
 	});
 

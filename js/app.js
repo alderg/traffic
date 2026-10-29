@@ -289,6 +289,67 @@
 	};
 
 	/**
+	 * Road opacity fades the roads and junctions, like Map opacity the map,
+	 * live while it is dragged, without changing the diagram, and is kept in
+	 * localStorage across reloads, 100 % by default. It is disabled while the
+	 * roads are hidden.
+	 */
+	function initRoadOpacity()
+	{
+		var roadsBox = document.getElementById('roads');
+		var opacity = document.getElementById('road-opacity');
+		var opacityValue = document.getElementById('road-opacity-value');
+		var opacityKey = 'traffic-road-opacity';
+
+		try
+		{
+			var stored = parseInt(window.localStorage.getItem(opacityKey));
+
+			if (stored >= 0 && stored <= 100)
+			{
+				opacity.value = stored;
+			}
+		}
+		catch (e)
+		{
+			// Starts opaque
+		}
+
+		// The value, the filled part of the track and the roads
+		function showOpacity()
+		{
+			opacityValue.textContent = opacity.value + ' %';
+			opacity.setAttribute('aria-valuetext', opacity.value + ' %');
+			opacity.style.setProperty('--fill', opacity.value + '%');
+			sim.setOption('roadOpacity', parseInt(opacity.value) / 100);
+		};
+
+		opacity.addEventListener('input', showOpacity);
+
+		opacity.addEventListener('change', function()
+		{
+			showOpacity();
+
+			try
+			{
+				window.localStorage.setItem(opacityKey, opacity.value);
+			}
+			catch (e)
+			{
+				// Keeps the opacity until the page reloads
+			}
+		});
+
+		roadsBox.addEventListener('change', function()
+		{
+			opacity.disabled = !roadsBox.checked;
+		});
+
+		opacity.disabled = !roadsBox.checked;
+		showOpacity();
+	};
+
+	/**
 	 * Writes the parameters to the URL of this page, so that reloads and
 	 * links keep them, with / and , as they are for readable links.
 	 */
@@ -400,6 +461,7 @@
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
 			initMapControl();
+			initRoadOpacity();
 			initSelection();
 			town = initTown();
 

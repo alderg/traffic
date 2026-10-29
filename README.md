@@ -118,7 +118,22 @@ on Android, still enlarges the whole page.
   the roads under them and a vehicle that is followed is let go. On again,
   each layer shows the state of now. Like the other display settings, the
   layers are not kept when the page reloads. Map opacity below Map
-  background fades the map, see [Map Background](#map-background).
+  background fades the map, see [Map Background](#map-background), and
+  Road opacity below Roads and junctions fades the roads and junctions in
+  the same way, from 100 %, the default, to 0 % in steps of 5 %, also with
+  the arrow keys, while it is dragged, so that the map shows through them
+  while the vehicles, the stop bars, the heads of the traffic lights, the
+  route of a followed vehicle and the selection stay opaque. It changes no
+  style of the diagram, so the file is not changed and there is nothing to
+  undo, and it stays through edits, other towns and examples and a switch
+  of the theme. Like the map opacity, the browser keeps it across reloads,
+  and it is disabled while the roads are hidden. Each cell that draw.io
+  draws (roads, junctions, roundabouts and also other shapes and texts) is
+  faded on its own, as an opacity of the whole drawing made the browser
+  paint all roads under each moving vehicle again, at a third of the frame
+  rate; this way the frame rate stays the same (Zurich with main and
+  collector roads, the map and 500 cars at 10x: 34 to 37 frames per second
+  at 100, 50 and 0 %).
 - Show density in the panel, off by default, colors each lane by its
   density, from green when it is free to red when vehicles take half of
   its cells (stop and go), so that a truck counts twice. The statistics
@@ -609,7 +624,9 @@ with the map off, in steps of 5 %, also with the arrow keys, in light and
 in dark mode, where the map is inverted first. The map changes while the
 slider is dragged, without loading tiles. Unlike the layers, the browser
 keeps the opacity across reloads, for all towns. The slider is disabled
-while the map is off or the diagram has none.
+while the map is off or the diagram has none. Road opacity fades the roads
+on the map in the same way (see the layers in
+[Drawing Roads](#drawing-roads)).
 
 The map is a live layer of tiles behind the transparent canvas of draw.io
 (`js/map.js`), placed again at each change of the zoom, the scroll and the
