@@ -22,10 +22,11 @@
  * the outside and a central island in islandColor. Traffic circulates
  * counterclockwise and enters and leaves on the roads connected to it.
  *
- * A crossing is an ellipse. With roads connected, it is painted as asphalt
- * as wide as its widest road and the roads end there, so that they join
- * without a disc that is larger than the roads. Its bounds stay the area
- * for selecting and connecting it.
+ * A crossing is an ellipse or a traffic light. With roads connected, it is
+ * painted as asphalt as wide as its widest road and the roads end there, so
+ * that they join without a disc that is larger than the roads. Traffic
+ * lights are 3 units wider for a small traffic light icon in the center.
+ * The bounds stay the area for selecting and connecting crossings.
  *
  * Default colors are light-dark pairs with the same color on both sides, so
  * that the dark mode of the editor does not invert them. Other draw.io apps
@@ -45,7 +46,7 @@ window.TrafficRoads = function(ui)
 
 	var crossingStyle = 'ellipse;aspect=fixed;html=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var lightStyle = 'shape=label;rounded=1;arcSize=50;aspect=fixed;perimeter=ellipsePerimeter;html=1;' +
-		'strokeColor=none;fillColor=' + roads.asphalt + ';image=' + lightImage + ';imageWidth=10;imageHeight=22;' +
+		'strokeColor=none;fillColor=' + roads.asphalt + ';image=' + lightImage + ';imageWidth=7;imageHeight=15;' +
 		'imageAlign=center;imageVerticalAlign=middle;trafficLight=10;';
 	var roundaboutStyle = 'shape=roundabout;aspect=fixed;perimeter=ellipsePerimeter;html=1;' +
 		'strokeColor=none;fillColor=' + roads.asphalt + ';islandColor=' + roads.island + ';';
@@ -409,6 +410,42 @@ window.TrafficRoads = function(ui)
 
 	mxCellRenderer.registerShape('roundabout', RoundaboutShape);
 
+	/**
+	 * Paints the asphalt of a crossing with the given radius and keeps its
+	 * bounds for events. Traffic lights get a small icon in the center.
+	 */
+	function paintCrossing(shape, c, x, y, w, h, r)
+	{
+		var cx = x + w / 2;
+		var cy = y + h / 2;
+
+		c.setShadow(false);
+		c.setFillColor(mxConstants.NONE);
+		c.setStrokeColor(mxConstants.NONE);
+		c.ellipse(x, y, w, h);
+		c.fillAndStroke();
+
+		c.setFillColor(getColor(shape, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
+		c.ellipse(cx - r, cy - r, 2 * r, 2 * r);
+		c.fill();
+
+		if (roads.isLight(shape.style))
+		{
+			c.setFillColor(roads.iconColors[0]);
+			c.setStrokeColor(roads.marking);
+			c.setStrokeWidth(0.5);
+			c.roundrect(cx - 3, cy - 6, 6, 12, 1.5, 1.5);
+			c.fillAndStroke();
+
+			for (var i = 0; i < 3; i++)
+			{
+				c.setFillColor(roads.iconColors[i + 1]);
+				c.ellipse(cx - 1.35, cy - 4.85 + 3.5 * i, 2.7, 2.7);
+				c.fill();
+			}
+		}
+	};
+
 	function CrossingShape()
 	{
 		mxEllipse.call(this);
@@ -417,8 +454,7 @@ window.TrafficRoads = function(ui)
 	mxUtils.extend(CrossingShape, mxEllipse);
 
 	/**
-	 * Paints the asphalt of a crossing with roads as wide as its widest road
-	 * and keeps its bounds for events, else an ellipse.
+	 * Paints a crossing with roads, else an ellipse.
 	 */
 	CrossingShape.prototype.paintVertexShape = function(c, x, y, w, h)
 	{
@@ -430,15 +466,31 @@ window.TrafficRoads = function(ui)
 		}
 		else
 		{
-			c.setShadow(false);
-			c.setFillColor(mxConstants.NONE);
-			c.setStrokeColor(mxConstants.NONE);
-			c.ellipse(x, y, w, h);
-			c.fillAndStroke();
+			paintCrossing(this, c, x, y, w, h, r);
+		}
+	};
 
-			c.setFillColor(getColor(this, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
-			c.ellipse(x + w / 2 - r, y + h / 2 - r, 2 * r, 2 * r);
-			c.fill();
+	function LightShape()
+	{
+		mxLabel.call(this);
+	};
+
+	mxUtils.extend(LightShape, mxLabel);
+
+	/**
+	 * Paints a traffic light with roads, else the label with the image.
+	 */
+	LightShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		var r = roads.getCrossingRadius(this.state);
+
+		if (r == null)
+		{
+			mxLabel.prototype.paintVertexShape.apply(this, arguments);
+		}
+		else
+		{
+			paintCrossing(this, c, x, y, w, h, r);
 		}
 	};
 
@@ -447,7 +499,8 @@ window.TrafficRoads = function(ui)
 	graph.cellRenderer.getShapeConstructor = function(state)
 	{
 		return (graph.model.isVertex(state.cell) && roads.isCrossing(state.style)) ?
-			CrossingShape : getShapeConstructor.apply(this, arguments);
+			((state.style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_LABEL) ? LightShape : CrossingShape) :
+			getShapeConstructor.apply(this, arguments);
 	};
 
 	var getPerimeterFunction = graph.view.getPerimeterFunction;
@@ -579,7 +632,7 @@ window.TrafficRoads = function(ui)
 		this.addPaletteFunctions('junctions', 'Junctions', true,
 		[
 			this.createVertexTemplateEntry(crossingStyle, 24, 24, '', 'Crossing', null, null, 'crossing'),
-			this.createVertexTemplateEntry(lightStyle, 32, 32, '', 'Traffic light', null, null, 'traffic light'),
+			this.createVertexTemplateEntry(lightStyle, 24, 24, '', 'Traffic light', null, null, 'traffic light'),
 			this.createVertexTemplateEntry(roundaboutStyle, 60, 60, '', 'Roundabout', null, null, 'roundabout')
 		]);
 
@@ -613,7 +666,7 @@ window.TrafficRoads = function(ui)
 	// Junctions in the shape picker of the hover arrows and connectors
 	ui.defaultShapePickerEntries = [
 		{style: crossingStyle, width: 24, height: 24, keepStyle: true},
-		{style: lightStyle, width: 32, height: 32, keepStyle: true},
+		{style: lightStyle, width: 24, height: 24, keepStyle: true},
 		{style: roundaboutStyle, width: 60, height: 60, keepStyle: true}];
 
 	/**
@@ -799,16 +852,30 @@ TrafficRoads.getLaneOffsets = function(style)
 };
 
 /**
- * Returns true for crossings, which are ellipses.
+ * Colors of the housing and the lamps of the traffic light icon.
+ */
+TrafficRoads.iconColors = ['light-dark(#202124,#202124)', 'light-dark(#a33a32,#a33a32)',
+	'light-dark(#a88a2a,#a88a2a)', 'light-dark(#2f8046,#2f8046)'];
+
+TrafficRoads.isLight = function(style)
+{
+	return style != null && mxUtils.getValue(style, 'trafficLight', 0) > 0;
+};
+
+/**
+ * Returns true for crossings, which are ellipses and traffic lights.
  */
 TrafficRoads.isCrossing = function(style)
 {
-	return style != null && style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_ELLIPSE;
+	return style != null && (style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_ELLIPSE ||
+		(style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_LABEL && TrafficRoads.isLight(style)));
 };
 
 /**
  * Returns the radius of the asphalt of the given crossing state, half the
- * width of its widest road, or null if it is no crossing or has no roads.
+ * width of its widest road, for traffic lights 3 units more and at least 10
+ * so that the roads leave room for the icon, or null if it is no crossing
+ * or has no roads.
  */
 TrafficRoads.getCrossingRadius = function(state)
 {
@@ -829,6 +896,11 @@ TrafficRoads.getCrossingRadius = function(state)
 			{
 				result = Math.max(result || 0, TrafficRoads.getRoadWidth(style) / 2);
 			}
+		}
+
+		if (result != null && TrafficRoads.isLight(state.style))
+		{
+			result = Math.max(result + 3, 10);
 		}
 	}
 

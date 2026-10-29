@@ -39,7 +39,8 @@ Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
 accelerate, brake to the gap, dawdle, move. Cars that are blocked change to
 a neighbor lane with more space ahead if no car is close behind there.
 Crossings let as many cars pass per step as their widest incoming road has
-lanes and take the incoming roads in turns. Roundabouts are a ring of cells
+lanes and take the incoming roads in turns. Cars drive through crossings on
+a curve at one cell per step (27 km/h) and enter the next road at its end. Roundabouts are a ring of cells
 with at most 2 cells per step (54 km/h); cars enter when the ring is free
 before the entry and leave where their next road starts. Cars drive from a
 random junction to another on the fastest route under the current speeds
@@ -74,7 +75,8 @@ Then open http://localhost:8000.
   asphalt with edge lines, lane dividers, center lines, arrows on one-way
   roads and stop and give-way lines, and replaces the shape libraries with
   palettes of junctions and roads. Crossings with roads are painted as wide
-  as their widest road and the roads end there. It connects the ends of
+  as their widest road and the roads end there, traffic lights a bit wider
+  with a small icon. It connects the ends of
   roads that are dropped on junctions. Other draw.io apps paint roads as
   plain connectors.
 - `js/simulation.js` builds the network from the cells of the current page,
