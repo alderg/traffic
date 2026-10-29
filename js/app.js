@@ -57,6 +57,13 @@
 	var centerHint = document.getElementById('center-hint');
 	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
+	var loading = initLoading();
+
+	// The town of the URL shows its progress before the editor starts
+	if (params.has('osm') || params.has('city'))
+	{
+		loading.show('Loading ' + (params.get('city') || params.get('osm')) + '…', 'Starting the editor…');
+	}
 
 	/**
 	 * Logs the given error with its stack and the given context if debug
@@ -467,6 +474,88 @@
 			document.getElementById(button.getAttribute('aria-controls')).hidden = folded;
 			section.classList.toggle('folded', folded);
 		}
+	};
+
+	/**
+	 * Shows the loading of a town in a card over the diagram, as the panel
+	 * may be folded, scrolled or hidden: a spinner with the town and the step
+	 * of the progress in the panel, with Cancel once there is a task to
+	 * cancel, or the error with Dismiss. The card is in a live region that is
+	 * always there, so that screen readers read it when it shows, but not the
+	 * steps, which change every second and which the panel reads.
+	 */
+	function initLoading()
+	{
+		var card = document.getElementById('loading-card');
+		var title = document.getElementById('loading-title');
+		var detail = document.getElementById('loading-detail');
+		var cancelButton = document.getElementById('loading-cancel');
+		var dismissButton = document.getElementById('loading-dismiss');
+		var onCancel = null;
+
+		function show(failed, text, more)
+		{
+			card.classList.toggle('failed', failed);
+			title.textContent = text;
+			detail.textContent = more || '';
+			detail.setAttribute('aria-hidden', String(!failed));
+			cancelButton.hidden = failed || onCancel == null;
+			dismissButton.hidden = !failed;
+			card.hidden = false;
+		};
+
+		function hide()
+		{
+			// Keeps the keyboard focus in the page, on the diagram
+			if (card.contains(document.activeElement))
+			{
+				frame.focus();
+
+				if (ui != null)
+				{
+					ui.editor.graph.container.focus();
+				}
+			}
+
+			card.hidden = true;
+		};
+
+		cancelButton.addEventListener('click', function()
+		{
+			onCancel();
+		});
+
+		dismissButton.addEventListener('click', hide);
+
+		card.addEventListener('keydown', function(evt)
+		{
+			if (evt.key == 'Escape' && !dismissButton.hidden)
+			{
+				hide();
+			}
+		});
+
+		return {
+			show: function(text, step)
+			{
+				show(false, text, step);
+			},
+			setStep: function(step)
+			{
+				if (!card.hidden && !card.classList.contains('failed'))
+				{
+					detail.textContent = step;
+				}
+			},
+			fail: function(text, reason)
+			{
+				show(true, text, reason);
+			},
+			hide: hide,
+			setCancel: function(fn)
+			{
+				onCancel = fn;
+			}};
 	};
 
 	var panelFocus = null;
@@ -1054,10 +1143,31 @@
 		};
 
 		/**
-		 * Starts a task with progress and Cancel and returns its controller.
-		 * A new task cancels the last one.
+		 * Shows why the town of the given name could not be loaded in the
+		 * panel, after the given lead if any, and over the diagram.
 		 */
-		function startTask(text)
+		function showLoadError(name, reason, lead)
+		{
+			showError(((lead != null) ? lead + ': ' : '') + reason);
+			loading.fail('Could not load ' + name, reason);
+		};
+
+		/**
+		 * Shows the given step of the task in the panel, and over the diagram
+		 * while a town loads.
+		 */
+		function setStatus(text)
+		{
+			statusText.textContent = text;
+			loading.setStep(text);
+		};
+
+		/**
+		 * Starts a task with progress and Cancel and returns its controller.
+		 * A new task cancels the last one. Tasks that load a town also show
+		 * the given title with their progress over the diagram.
+		 */
+		function startTask(text, title)
 		{
 			if (task != null)
 			{
@@ -1066,6 +1176,16 @@
 
 			task = new AbortController();
 			showError(null);
+
+			if (title != null)
+			{
+				loading.show(title, text);
+			}
+			else
+			{
+				loading.hide();
+			}
+
 			statusText.textContent = text;
 			progress.hidden = false;
 			setFolded('network', false);
@@ -1084,9 +1204,10 @@
 			}
 		};
 
-		document.getElementById('town-cancel').addEventListener('click', function()
+		function cancel()
 		{
 			var t = task;
+			loading.hide();
 
 			if (t != null)
 			{
@@ -1095,7 +1216,10 @@
 				infoText.textContent = 'Cancelled.';
 				infoText.hidden = false;
 			}
-		});
+		};
+
+		document.getElementById('town-cancel').addEventListener('click', cancel);
+		loading.setCancel(cancel);
 
 		function getMessage(e)
 		{
@@ -1647,7 +1771,7 @@
 			var p = place;
 			var l = level.value;
 			var s = section;
-			var t = startTask('Loading the roads of ' + p.name + '\u2026');
+			var t = startTask('Loading the roads of ' + p.name + '\u2026', 'Loading ' + p.name + '\u2026');
 			var start = Date.now();
 			var last = null;
 			infoText.hidden = true;
@@ -1666,7 +1790,7 @@
 						text = last.errors[last.errors.length - 1] + '. ' + text;
 					}
 
-					statusText.textContent = text + ' ' + secs + ' s';
+					setStatus(text + ' ' + secs + ' s');
 				}
 			};
 
@@ -1679,7 +1803,7 @@
 			}, fresh).then(function(entry)
 			{
 				window.clearInterval(timer);
-				statusText.textContent = 'Building the network\u2026';
+				setStatus('Building the network\u2026');
 
 				// Paints the status before the work
 				return new Promise(function(resolve)
@@ -1701,12 +1825,12 @@
 
 				if (r.result.empty)
 				{
-					showError('There are no ' + osm.levelNames[l].toLowerCase() + ' in ' +
+					showLoadError(p.name, 'There are no ' + osm.levelNames[l].toLowerCase() + ' in ' +
 						((s != null) ? 'this section of ' : '') + p.name + '. Choose more roads or another section.');
 				}
 				else if (r.result.tooLarge)
 				{
-					showError('The network of ' + ((s != null) ? 'this section of ' : '') + p.name + ' has ' +
+					showLoadError(p.name, 'The network of ' + ((s != null) ? 'this section of ' : '') + p.name + ' has ' +
 						format(st.junctions) + ' junctions and ' + format(st.roads) + ' roads, more than the ' +
 						format(osm.limits.junctions) + ' junctions and ' + format(osm.limits.roads) +
 						' roads that stay fast. Choose main roads or a section on the map and Load again, ' +
@@ -1715,7 +1839,10 @@
 				}
 				else
 				{
-					statusText.textContent = 'Opening the network\u2026';
+					setStatus('Opening the network\u2026');
+					// The town is drawn before the next paint, or the editor
+					// first asks to discard the changes of the diagram
+					loading.hide();
 
 					openFile(r.result.xml, p.name + '.drawio', function()
 					{
@@ -1747,8 +1874,8 @@
 				{
 					endTask(t);
 					logError(e, 'loading ' + p.name);
-					showError('Could not load ' + p.name + ': ' + getMessage(e) + ((e.busy) ?
-						' Try again later, choose main roads or a smaller section.' : ''));
+					showLoadError(p.name, getMessage(e) + ((e.busy) ?
+						' Try again later, choose main roads or a smaller section.' : ''), 'Could not load ' + p.name);
 
 					if (onError != null)
 					{
@@ -1929,12 +2056,12 @@
 			{
 				return m.value == params.get('trips');
 			})) ? {mode: params.get('trips'), through: (through >= 0 && through <= 100) ? through / 100 : 0.25} : null;
-			var t = startTask('Finding ' + label + '\u2026');
+			var t = startTask('Finding ' + label + '\u2026', 'Loading ' + label + '\u2026');
 			query.value = name || '';
 
 			function fail(e)
 			{
-				showError('Could not open ' + label + ' from the link: ' + getMessage(e));
+				showLoadError(label, getMessage(e), 'Could not open ' + label + ' from the link');
 
 				// Keeps the town in the URL to try again
 				if (ui.isDiagramEmpty())
@@ -1957,6 +2084,7 @@
 				return osm.lookup(list[0].key, t.signal);
 			})).then(function(p)
 			{
+				label = p.name;
 				endTask(t);
 				choose(p, roads, s);
 				load(false, fail);

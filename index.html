@@ -221,6 +221,19 @@
 		aria-label="Hide the simulation panel" title="Hide the simulation panel">
 		<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
 	</button>
+	<div id="loading" class="loading" role="status" aria-live="polite">
+		<div id="loading-card" class="loading-card" hidden>
+			<span class="spinner" aria-hidden="true"></span>
+			<svg class="alert-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle
+				cx="10" cy="10" r="9"/><path d="M10 5.5v5.5M10 14v.5"/></svg>
+			<div class="loading-text">
+				<strong id="loading-title"></strong>
+				<span id="loading-detail"></span>
+			</div>
+			<button id="loading-cancel" type="button" hidden>Cancel</button>
+			<button id="loading-dismiss" type="button" hidden>Dismiss</button>
+		</div>
+	</div>
 	<iframe id="editor" title="Diagram editor"
 		data-src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1&amp;ui=simple&amp;sidebar=0&amp;format=0&amp;dark=auto"></iframe>
 </main>

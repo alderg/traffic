@@ -454,7 +454,8 @@ Under Network, Load your town loads the roads of a town or city from
   a section or fewer roads are then built from the loaded roads without
   loading again. The limits keep towns fast (see the tests below).
 - Load shows its progress (the server, the MB loaded, the seconds) with a
-  Cancel button, builds the network and opens it, and sets Cars for its
+  Cancel button in the panel and in a card over the diagram, like a link
+  (see below), builds the network and opens it, and sets Cars for its
   size (1 per 1.5 km of lanes, 100 to 1,500). Copy Link copies a link to
   the town, which opens it at start.
 - Loaded towns are kept in the browser (IndexedDB) with the date and the
@@ -530,7 +531,18 @@ OpenStreetMap (`node/`, `way/` or `relation/`), which links use with the
 name. `roads=main`, `collector` or `all` sets the roads, `circle=<lat>,<lon>,<m>`
 or `bbox=<south>,<west>,<north>,<east>` the section, eg.
 `?city=Los%20Angeles&osm=relation/207359&roads=main&circle=34.05,-118.25,5000`.
-Errors are shown in the panel, which then opens the Town example.
+From the start of the page until the town is drawn and the cars can start,
+a card over the diagram (at the bottom of the screen on phones) shows a
+spinner with "Loading Los Angeles…", with the name of the link and then of
+the place that was found, and below it the step that the panel shows, eg.
+"Starting the editor…", "Finding Los Angeles…" or "Loading the roads from
+overpass-api.de: 2.1 MB… 9 s", with Cancel. Screen readers read the card
+(`role="status"`) but not the steps that change every second, which the
+panel reads. Errors, eg. no place of the name or the id, no answer from the
+Overpass servers or no roads to load, turn the card into the error with
+Dismiss (or Escape) and are shown in the panel too. When the town could not
+be found or loaded, the Town example opens behind it. The card covers only
+itself, not the diagram or the panel.
 
 The network is built like `tools/net2drawio.py` builds the examples, in
 Web Mercator like the map tiles, scaled by the cosine of the latitude of

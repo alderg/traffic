@@ -867,6 +867,95 @@ iframe {
 	transform: rotate(180deg);
 }
 
+/* Loading a town: a card over the middle of the diagram with the progress,
+   or the error with Dismiss. The rest of the diagram stays usable. */
+.loading {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+	pointer-events: none;
+}
+
+.loading-card {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	max-width: 420px;
+	padding: 14px 16px;
+	color: var(--text);
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+	pointer-events: auto;
+}
+
+.loading-card .spinner {
+	width: 22px;
+	height: 22px;
+	border-width: 3px;
+}
+
+.loading-text {
+	display: grid;
+	flex: 1 1 auto;
+	min-width: 0;
+	row-gap: 2px;
+	overflow-wrap: anywhere;
+}
+
+.loading-text strong {
+	font-size: 14px;
+	font-weight: 600;
+}
+
+#loading-detail {
+	font-size: 12px;
+	color: var(--muted);
+}
+
+#loading-detail:empty {
+	display: none;
+}
+
+.loading-card button {
+	flex: none;
+}
+
+.alert-icon {
+	display: none;
+	flex: none;
+	fill: none;
+	stroke: var(--error);
+	stroke-width: 2;
+	stroke-linecap: round;
+}
+
+.loading-card.failed {
+	border-color: var(--error);
+}
+
+.loading-card.failed .spinner {
+	display: none;
+}
+
+.loading-card.failed .alert-icon {
+	display: block;
+}
+
+.loading-card.failed strong {
+	color: var(--error);
+}
+
+.loading-card.failed #loading-detail {
+	color: var(--text);
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.panel, .collapsed .panel, .toggle svg, .fold svg, button {
 		transition: none;
@@ -920,5 +1009,12 @@ iframe {
 
 	.collapsed .toggle svg {
 		transform: rotate(270deg);
+	}
+
+	/* At the bottom of the screen, as the editor may be below it */
+	.loading {
+		position: fixed;
+		inset: auto 0 env(safe-area-inset-bottom, 0) 0;
+		padding: 12px;
 	}
 }
