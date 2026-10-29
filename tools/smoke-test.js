@@ -3,7 +3,7 @@
  */
 /**
  * Opens the page at the given URL in headless Chrome and checks that draw.io
- * starts, the roads and the simulation attach to it, the Small example opens
+ * starts, the roads and the simulation attach to it, the Town example opens
  * with its network and cars drive, without errors on the page. The update of
  * draw.io runs it before it pushes a new release
  * (.github/workflows/update-drawio.yml).

@@ -25,6 +25,7 @@
 (function()
 {
 	var examples = [
+		{label: 'Town', name: 'town'},
 		{label: 'Small, with a traffic light', name: 'small'},
 		{label: 'Race', name: 'race'},
 		{label: 'Axhausen', name: 'axhausen'},
@@ -328,7 +329,7 @@
 			}
 			else if (ui.isDiagramEmpty())
 			{
-				openExample('small');
+				openExample('town');
 			}
 		});
 	};
@@ -1686,7 +1687,7 @@
 				// Keeps the town in the URL to try again
 				if (ui.isDiagramEmpty())
 				{
-					openExample('small', true);
+					openExample('town', true);
 				}
 			};
 

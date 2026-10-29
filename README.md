@@ -159,6 +159,15 @@ from elsewhere: Small, Race and Axhausen for the Java version, converted
 from its `.net` files with `tools/net2drawio.py` (the Import button inserts
 such files into the current diagram), and the others for the browser.
 
+- **Town**, which opens when the page opens: a small town of 1.5 by 1 km
+  with a main street at 50 km/h from a roundabout at its west end through
+  a crossing with traffic lights (20 s of green) with Bahnhofstrasse, where
+  both approaches of the main street have a left-turn lane, a quarter of
+  side streets at 30 km/h on each side with a one-way pair in the old
+  town, a curved lane and a dead end, and a bypass at 80 km/h around the
+  south. Five entries with gates bring traffic in from the next villages,
+  the station and the south. At 10x it runs at 60 frames per second, and
+  it stays free with 60, 120 and 200 cars.
 - **Small, with a traffic light**: 15 crossings of one-way roads around
   blocks, with a traffic light where three roads meet.
 - **Race**: four one-way roads in a ring, where faster vehicles queue behind
@@ -258,7 +267,7 @@ OpenStreetMap (`node/`, `way/` or `relation/`), which links use with the
 name. `roads=main`, `collector` or `all` sets the roads, `circle=<lat>,<lon>,<m>`
 or `bbox=<south>,<west>,<north>,<east>` the section, eg.
 `?city=Los%20Angeles&osm=relation/207359&roads=main&circle=34.05,-118.25,5000`.
-Errors are shown in the panel, which then opens the Small example.
+Errors are shown in the panel, which then opens the Town example.
 
 The network is built like `tools/net2drawio.py` builds the examples, in
 Web Mercator like the map tiles, scaled by the cosine of the latitude of
@@ -462,7 +471,7 @@ then writes its own debug messages and has a Develop menu.
   jgraph/drawio, daily at 08:00 UTC: if the submodule is at an older tag, it
   fetches only the new tag into it, checks that the files the page loads
   from draw.io are there, opens the page with `tools/smoke-test.js` (headless
-  Chrome: the editor starts, the simulation attaches, the Small example
+  Chrome: the editor starts, the simulation attaches, the Town example
   opens and cars drive, without errors), commits "Update draw.io to <tag>"
   as github-actions[bot] straight to `main` and pushes it. If `main` moved
   meanwhile, it rebases onto it, and fails if the submodule changed there
