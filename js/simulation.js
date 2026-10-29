@@ -4252,6 +4252,7 @@ window.TrafficSimulation = function(ui, listener)
 		sim.active.forEach(function(v)
 		{
 			v.dest = net.crossingMap.get(v.dest.id);
+			keepTrip(v);
 			var route = mapRoute(v.route, v.index, v.getJunction(), v.dest);
 			v.route = (route != null) ? route : [];
 			v.index = 0;
@@ -4286,9 +4287,29 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				v.route = route;
 				v.dest = dest;
+				v.origin = route[0].from;
 				route[0].queue.push(v);
 				sim.queued++;
 			}
+		}
+	};
+
+	/**
+	 * Gives the given car the start and the roads behind it in the new
+	 * network, or copies of the old ones without their links if they are
+	 * gone, so that cars do not keep the old network alive.
+	 */
+	function keepTrip(v)
+	{
+		var o = v.origin;
+		v.origin = net.crossingMap.get(o.id) || {id: o.id, x: o.x, y: o.y, joint: o.joint, gate: o.gate,
+			rings: (o.rings != null) ? [] : null, phases: (o.phases != null) ? [] : null};
+
+		for (var i = 0; i < v.trail.length; i++)
+		{
+			var link = v.trail[i];
+			v.trail[i] = net.linkMap.get(link.key) || {key: link.key,
+				paths: [link.paths[Math.floor((link.paths.length - 1) / 2)]]};
 		}
 	};
 
