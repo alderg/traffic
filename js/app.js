@@ -1802,6 +1802,17 @@
 		});
 
 		/**
+		 * Returns the given town with the given trips of a link in the root of
+		 * its page, where the simulation reads them, so that they come with the
+		 * file: not as a change that marks it as modified and can be undone.
+		 */
+		function withTrips(xml, trips)
+		{
+			return (trips == null) ? xml : xml.replace('<mxCell id="0"/>', '<object id="0" trips="' + trips.mode +
+				'" throughShare="' + Math.round(Math.max(0, Math.min(1, trips.through)) * 100) / 100 + '"><mxCell/></object>');
+		};
+
+		/**
 		 * Loads, builds and opens the network of the chosen place, level and
 		 * section, from the cache unless fresh is true, with the given trips
 		 * of a link, if any.
@@ -1885,17 +1896,10 @@
 					// first asks to discard the changes of the diagram
 					loading.hide();
 
-					openFile(r.result.xml, p.name + '.drawio', function()
+					openFile(withTrips(r.result.xml, trips), p.name + '.drawio', function()
 					{
 						loaded = {place: p, level: l, section: s};
 						updateLink();
-
-						// The trips of a link go with the town
-						if (trips != null)
-						{
-							sim.setTrips(trips.mode, trips.through);
-						}
-
 						setUrl(trips);
 
 						// Enough cars to see traffic on the roads

@@ -346,8 +346,9 @@ network. The choice applies at once to new vehicles, while the others keep
 their trips, and the diagram keeps it: the attributes `trips` and
 `throughShare` of the page (Edit Data on the background shows them), which
 can be undone and are saved with the file. Copy Link adds `trips` and
-`through` (in percent) to the link of a town when they are not its default.
-The Vehicle section shows the trip of the followed vehicle, eg. "Local, home
+`through` (in percent) to the link of a town when they are not its default,
+and such a link opens the town with them in its file, so that they do not
+mark it as changed and cannot be undone. The Vehicle section shows the trip of the followed vehicle, eg. "Local, home
 → work or shops", "Commuter from outside, gate → centre" or "Through
 traffic, gate → gate". Show zones paints the homes in blue and the centre
 or the jobs in orange, as circles with an area in proportion to their
