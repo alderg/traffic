@@ -6336,6 +6336,22 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			net.passable = getPassable(net);
 			net.trips = null;
+
+			// Cars that pass on roads that no longer qualify finish their pass
+			net.passing.forEach(function(road)
+			{
+				if (road.passer != null && net.passable.indexOf(road.passer.link) < 0)
+				{
+					net.passable.push(road.passer.link);
+				}
+			});
+
+			// The colors of the speeds change, also while paused
+			schedule();
+		}
+		else if (key == 'fast')
+		{
+			schedule();
 		}
 		else if (key == 'zones' && overlay != null)
 		{
