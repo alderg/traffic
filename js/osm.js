@@ -21,9 +21,10 @@
  * cut where they leave the town (its administrative boundary, a circle
  * around the center for places without one, and the chosen section) and
  * the cut ends are gates, junctions with gate=1 where cars enter and leave
- * the network. Junctions are nodes that several ways share, and the chain
- * of ways and nodes between two junctions is one road with the shape of the
- * ways as its points, simplified. Roads keep oneway, the lanes per
+ * the network. Junctions are nodes where three or more roads meet or where
+ * roads end. A node that only joins two roads is never a junction: the
+ * chain of ways and nodes between two junctions is one road with the shape
+ * of the ways as its points, simplified. Roads keep oneway, the lanes per
  * direction (lanes, lanes:forward and lanes:backward) and maxspeed (as
  * maxSpeed in km/h). Rings of junction=roundabout become roundabouts,
  * highway=traffic_signals on or near a junction a traffic light, junctions
@@ -63,7 +64,7 @@ var TrafficOsm = (function()
 	var radii = {city: 5000, town: 2500, village: 1200, hamlet: 500, suburb: 1000, quarter: 700,
 		neighbourhood: 500, borough: 2000, locality: 500, isolated_dwelling: 300};
 
-	var limits = {junctions: 9000, roads: 12000};
+	var limits = {junctions: 4000, roads: 6000};
 	var earthRadius = 6371008.8;
 	var degree = Math.PI / 180 * earthRadius;
 	var boundaryTolerance = 25;
@@ -574,7 +575,7 @@ var TrafficOsm = (function()
 	 * Returns the estimated junctions of each level in the given place and
 	 * section from its area and, if known, its population, with the
 	 * junctions per km\u00b2 and per inhabitant of Zurich, Bern, Zug and Los
-	 * Angeles (within about a third). A count query on Overpass costs about
+	 * Angeles (within about a quarter). A count query on Overpass costs about
 	 * as much as loading the roads.
 	 */
 	function estimate(place, section)
@@ -583,8 +584,8 @@ var TrafficOsm = (function()
 		var people = (place.population != null) ? place.population *
 			Math.min(1, area / Math.max(1e-6, getArea(place, null))) : Infinity;
 
-		return {main: Math.min(15 * area, people / 200), collector: Math.min(17 * area, people / 180),
-			all: Math.min(50 * area, people / 60), area: area};
+		return {main: Math.min(7 * area, people / 450), collector: Math.min(8 * area, people / 400),
+			all: Math.min(40 * area, people / 70), area: area};
 	};
 
 	/**
@@ -1140,7 +1141,7 @@ var TrafficOsm = (function()
 	Graph.prototype.addVertex = function(x, y, id, kind)
 	{
 		var v = {index: this.vertices.length, id: id, x: x, y: y, kind: kind || 'crossing',
-			light: false, signal: false, keep: false, edges: [], removed: false};
+			light: false, signal: false, edges: [], removed: false};
 		this.vertices.push(v);
 
 		return v;
@@ -1703,31 +1704,52 @@ var TrafficOsm = (function()
 	};
 
 	/**
-	 * Merges the two roads of junctions that join two roads with the same
-	 * lanes and speed into one road.
+	 * Merges the two roads of each junction that joins only two roads into
+	 * one road, with the junction as a waypoint, where traffic passes in one
+	 * direction or both. The road keeps the lanes of the longer part and the
+	 * speed of the time to drive both. Two roads to the same junction become
+	 * a loop without another junction, which cars cannot use: with dropLoops
+	 * it is removed, else the junction stays, eg. for mergePairs.
 	 */
-	function mergeChains(g)
+	function mergeChains(g, dropLoops)
 	{
-		g.vertices.forEach(function(v)
-		{
-			if (!v.removed && v.kind == 'crossing' && !v.light && !v.keep &&
-				v.edges.length == 2 && v.edges[0] != v.edges[1])
-			{
-				var a = orient(v.edges[0], v, true);
-				var b = orient(v.edges[1], v, false);
+		var merged = true;
 
-				if (a.fwd == b.fwd && a.bwd == b.bwd && v.edges[0].speed == v.edges[1].speed && a.from != b.to)
+		while (merged)
+		{
+			merged = false;
+
+			g.vertices.forEach(function(v)
+			{
+				if (!v.removed && v.kind == 'crossing' && v.edges.length == 2 && v.edges[0] != v.edges[1])
 				{
 					var e0 = v.edges[0];
 					var e1 = v.edges[1];
-					g.removeEdge(e0);
-					g.removeEdge(e1);
-					g.addEdge(a.from, b.to, a.pts.concat(b.pts.slice(1)), {fwd: a.fwd, bwd: a.bwd,
-						speed: e0.speed, ring: e0.ring && e1.ring}, e0.id);
-					v.removed = true;
+					var a = orient(e0, v, true);
+					var b = orient(e1, v, false);
+					var fwd = a.fwd > 0 && b.fwd > 0;
+					var bwd = a.bwd > 0 && b.bwd > 0;
+
+					if ((fwd || bwd) && (dropLoops || a.from != b.to))
+					{
+						var la = getLength(e0);
+						var lb = getLength(e1);
+						var longer = (la >= lb) ? a : b;
+						g.removeEdge(e0);
+						g.removeEdge(e1);
+						v.removed = true;
+						merged = true;
+
+						if (a.from != b.to)
+						{
+							g.addEdge(a.from, b.to, a.pts.concat(b.pts.slice(1)), {fwd: (fwd) ? longer.fwd : 0,
+								bwd: (bwd) ? longer.bwd : 0, speed: Math.round((la + lb) /
+								Math.max(1e-6, la / e0.speed + lb / e1.speed)), ring: e0.ring && e1.ring}, e0.id);
+						}
+					}
 				}
-			}
-		});
+			});
+		}
 	};
 
 	/**
@@ -1921,45 +1943,16 @@ var TrafficOsm = (function()
 	};
 
 	/**
-	 * Splits roads that start and end at the same junction in the middle,
-	 * as roads join two junctions, and removes short ones.
+	 * Removes roads that start and end at the same junction without another
+	 * junction on them, as cars cannot use them.
 	 */
-	function splitLoops(g)
+	function dropLoops(g)
 	{
-		var count = 0;
-
 		g.getEdges().forEach(function(e)
 		{
 			if (e.from == e.to)
 			{
 				g.removeEdge(e);
-				var half = getLength(e) / 2;
-
-				if (half >= minRoadLength)
-				{
-					var d = 0;
-
-					for (var i = 1; i < e.pts.length; i++)
-					{
-						var a = e.pts[i - 1];
-						var b = e.pts[i];
-						var len = Math.sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
-
-						if (d + len >= half)
-						{
-							var t = (len > 0) ? (half - d) / len : 0;
-							var m = {x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y)};
-							var v = g.addVertex(m.x, m.y, 'j' + count++);
-							v.keep = true;
-							g.addEdge(e.from, v, e.pts.slice(0, i).concat([m]), e, e.id);
-							g.addEdge(v, e.to, [m].concat(e.pts.slice(i)), e, e.id);
-
-							break;
-						}
-
-						d += len;
-					}
-				}
 			}
 		});
 	};
@@ -2110,13 +2103,13 @@ var TrafficOsm = (function()
 		addLights(g);
 		clip(g, region);
 		addRoundabouts(g);
-		mergeChains(g);
+		mergeChains(g, false);
 		contract(g);
-		mergeChains(g);
+		mergeChains(g, false);
 		mergePairs(g);
 		dropStubs(g);
-		mergeChains(g);
-		splitLoops(g);
+		dropLoops(g);
+		mergeChains(g, true);
 		var dropped = dropParts(g);
 
 		var edges = g.getEdges();

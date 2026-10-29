@@ -242,12 +242,13 @@
 	{
 		var win = frame.contentWindow;
 
-		loadScripts(['js/roads.js', 'js/simulation.js'], function()
+		loadScripts(['js/roads.js', 'js/simulation.js', 'js/map.js'], function()
 		{
 			ui = editorUi;
 			logHandledErrors();
 			win.TrafficRoads.onError = logError;
 			roads = win.TrafficRoads(ui);
+			win.TrafficMap(ui);
 			keepFormatPanelClosed();
 			sim = win.TrafficSimulation(ui, update);
 			initControls();

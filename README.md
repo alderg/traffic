@@ -162,11 +162,11 @@ Under Network, Load your town loads the roads of a town or city from
   3,000 junctions of all streets get all streets, larger ones main and
   collector roads, and the largest main roads.
 - The panel estimates the junctions from the area and the population.
-  Above 9,000 junctions it warns, above twice as many it does not load:
+  Above 4,000 junctions it warns, above twice as many it does not load:
   choose main roads or a section. After loading, networks with more than
-  9,000 junctions or 12,000 roads are not opened either, with their size;
+  4,000 junctions or 6,000 roads are not opened either, with their size;
   a section or fewer roads are then built from the loaded roads without
-  loading again. A network at the limit opens in about 4 s.
+  loading again. The limits keep towns fast (see the tests below).
 - Load shows its progress (the server, the MB loaded, the seconds) with a
   Cancel button, builds the network and opens it, and sets Cars for its
   size (1 per 1.5 km of lanes, 100 to 1,500). Copy Link copies a link to
@@ -187,10 +187,17 @@ Errors are shown in the panel, which then opens the Small example.
 The network is built like `tools/net2drawio.py` builds the examples, in
 units of 1 m around the center of the town with north at the top:
 
-- Junctions are the nodes that several ways share and the ends of ways.
-  The chain of ways and nodes between two junctions is one road with the
-  shape of the ways as its waypoints, simplified to 4 m, so that the
-  network stays as small as the junctions allow.
+- Junctions are the nodes where three or more roads meet and the ends of
+  roads. A node that only joins two roads, with one way in and one way
+  out, is never a junction: the chain of ways and nodes between two
+  junctions is one road with the shape of the ways as its waypoints,
+  simplified to 4 m, so that the network stays as small as the junctions
+  allow. Where the lanes or the speed change along the chain, the road
+  keeps the lanes of its longer part and the speed of the time to drive
+  all of it. Only a node where two one-way roads meet head on, which no
+  traffic can pass, stays the end of both. Roads that come back to the
+  same junction without another junction on them are dropped, as cars
+  cannot use them.
 - Roads keep `oneway` (also implied on motorways and roundabouts, and `-1`),
   the lanes per direction from `lanes`, `lanes:forward` and
   `lanes:backward` without bus and center lanes (1 to 4, motorways and
@@ -211,17 +218,23 @@ units of 1 m around the center of the town with north at the top:
   of all, at least 5 and at most 50, are dropped, and so are dead ends
   shorter than 20 m.
 - The text below the network credits OpenStreetMap with the date of the
-  data and links to its copyright page.
+  data and links to its copyright page, and while a town is open, the
+  bottom right corner of the diagram shows "© OpenStreetMap contributors,
+  ODbL" with links at all zoom levels.
 
 Traffic drives on the right in all towns, and turn lanes are not loaded.
 
-Tested on 2026-10-29: Zug (all streets) 460 junctions, Bern (all streets)
-2,450 junctions and 158 traffic lights, Zurich (all streets) 4,762
-junctions, which open in 3.5 s, a circle of 3 km in Berlin (main and
-collector) 720 junctions, and a circle of 5 km in Los Angeles (all
-streets) 3,828 junctions. All of Los Angeles is not loaded: its main roads
-alone have 22,050 junctions. The towns are built in 0.1 s (Zurich) to
-1.7 s (all of Los Angeles) after loading.
+Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density:
+Zug (all streets) has 408 junctions, Bern (all streets) 1,962 junctions
+and 158 traffic lights, and Zurich (all streets) 3,791 junctions and 5,517
+roads, which open in 3.4 s and run at 14 frames per second with 1,000
+cars. Sections of Los Angeles (main and collector roads) with 3,131
+junctions and 4,941 roads open in 3.6 s at 11 frames per second, with
+4,679 junctions and 7,316 roads in 4.9 s at 7, and with 7,409 junctions
+and 11,548 roads in 7.9 s at 4, which is why the limits are 4,000
+junctions and 6,000 roads. All of Los Angeles is not loaded: its main
+roads alone have 7,899 junctions and 12,565 roads. The towns are built in
+0.1 s (Zurich) to 1.5 s (Los Angeles) after loading.
 
 `tools/osm2drawio.js` builds the same network in Node from saved answers of
 Nominatim and Overpass, eg. for new examples or tests:
