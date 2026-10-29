@@ -1837,7 +1837,8 @@
 					window.setTimeout(resolve, 30);
 				}).then(function()
 				{
-					return {entry: entry, result: osm.build(entry.data, p, l, s, {date: entry.dataDate || entry.date})};
+					return {entry: entry, result: (t.signal.aborted) ? null :
+						osm.build(entry.data, p, l, s, {date: entry.dataDate || entry.date})};
 				});
 			}).then(function(r)
 			{
