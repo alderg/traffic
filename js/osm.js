@@ -2117,11 +2117,20 @@ var TrafficOsm = (function()
 		});
 
 		var min = Math.min(50, Math.max(5, Math.round(edges.length / 100)));
+		var largest = 0;
 		var dropped = 0;
 
+		sizes.forEach(function(size)
+		{
+			largest = Math.max(largest, size);
+		});
+
+		// The largest part stays also if it is small, eg. a small town
 		edges.forEach(function(e)
 		{
-			if (sizes.get(find(e.from)) < min)
+			var size = sizes.get(find(e.from));
+
+			if (size < min && size < largest)
 			{
 				g.removeEdge(e);
 				dropped++;
