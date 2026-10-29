@@ -50,6 +50,7 @@
 	var faviconRunning = false;
 	var tiles = getTiles();
 	var vehicleSection = document.getElementById('vehicle');
+	var centerHint = document.getElementById('center-hint');
 	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
 
@@ -402,6 +403,7 @@
 
 		updateVehicle();
 		updateLegend();
+		centerHint.hidden = sim == null || !sim.isCenterPaused();
 	};
 
 	/**
@@ -1919,7 +1921,7 @@
 
 		var labelsHint = document.getElementById('labels-hint');
 
-		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'density', 'labels'].forEach(function(key)
+		['reroute', 'passEitherSide', 'roads', 'lights', 'vehicles', 'density', 'labels', 'center'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];

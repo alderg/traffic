@@ -62,7 +62,9 @@
  * that entered and left. Each link and junction counts its cars for the
  * statistics of the selection (getStats). A click on a car selects it: its
  * route is colored from its start A to its destination B, a ring and a label
- * follow it, and getVehicle returns its data. The overlay has no pointer
+ * follow it, and getVehicle returns its data. With center in the config, the
+ * view glides with the selected car when it leaves the middle half of the
+ * view (centerView). The overlay has no pointer
  * events, so a mouse listener before those of draw.io tests clicks against
  * the positions of the cars, and drags edit the diagram as usual. With debug
  * output, a summary, the links and junctions with cars, the cars that stand
@@ -165,7 +167,7 @@ window.TrafficSimulation = function(ui, listener)
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1, passEitherSide: false, roads: true, lights: true, vehicles: true,
-		mapBackground: false};
+		mapBackground: false, center: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -185,6 +187,8 @@ window.TrafficSimulation = function(ui, listener)
 	var labels = null;
 	var labelsDirty = true;
 	var focus = null;
+	var camera = null;
+	var zoomPreview = false;
 	var press = null;
 	var lastLabels = 0;
 	var lastDebug = 0;
@@ -4469,6 +4473,14 @@ window.TrafficSimulation = function(ui, listener)
 			return;
 		}
 
+		// Moves the view first, while the layout of the last frame is valid,
+		// with the selected car where it was painted then, and keeps frames
+		// coming while it glides with the simulation paused
+		if (centerView(now) && !running)
+		{
+			schedule();
+		}
+
 		// Page switches change the scale and translate without events
 		updateTransform();
 
@@ -4953,8 +4965,9 @@ window.TrafficSimulation = function(ui, listener)
 	 * stops painting them, also the selected one, hiding the roads takes the
 	 * draw pane out of the page, so that its cells are neither painted nor
 	 * hit, hiding the traffic lights stops painting their stop bars and heads
-	 * while they keep switching, and mapBackground, which the page sets while
-	 * the map is behind the roads, changes the colors of the vehicles.
+	 * while they keep switching, center turned on again ends a pause of
+	 * centering, and mapBackground, which the page sets while the map is
+	 * behind the roads, changes the colors of the vehicles.
 	 */
 	function setOption(key, value)
 	{
@@ -5004,6 +5017,16 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				updateNetwork();
 			}
+		}
+		else if (key == 'center')
+		{
+			// Turning it on again ends a pause
+			if (focus != null)
+			{
+				focus.centerPaused = false;
+			}
+
+			schedule();
 		}
 		else if (key == 'vehicles' && overlay != null)
 		{
@@ -5075,7 +5098,8 @@ window.TrafficSimulation = function(ui, listener)
 	graph.view.addListener(mxEvent.TRANSLATE, transform);
 	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, transform);
 
-	// Scrolling and resizing show other roads and junctions
+	// Scrolling and resizing show other roads and junctions, and a pan by
+	// hand pauses centering
 	var viewChanged = roads.guard(function()
 	{
 		if (config.labels)
@@ -5083,7 +5107,23 @@ window.TrafficSimulation = function(ui, listener)
 			labelsDirty = true;
 			schedule();
 		}
+		else if (camera != null)
+		{
+			schedule();
+		}
 	}, 'simulation view change');
+
+	// The zoom preview of draw.io changes the view until it is complete
+	graph.addListener('zoomPreview', function()
+	{
+		zoomPreview = true;
+	});
+
+	graph.addListener('zoomPreviewComplete', function()
+	{
+		zoomPreview = false;
+		schedule();
+	});
 
 	mxEvent.addListener(graph.container, 'scroll', viewChanged);
 	mxEvent.addListener(window, 'resize', viewChanged);
@@ -5359,6 +5399,180 @@ window.TrafficSimulation = function(ui, listener)
 				focus.box.setAttribute('width', Math.ceil(0.55 * 11 * text.length) + 12);
 			}
 		}
+	};
+
+	/**
+	 * Moves the view with the selected car while Center selected car is on
+	 * (center in the config) and returns true while it glides. The view stays
+	 * while the car is in the middle half of it. When the car leaves that
+	 * zone, or is outside it when centering starts, the scroll position
+	 * glides towards the car in the middle with a critically damped spring,
+	 * which starts and comes to rest softly, never overshoots and smooths the
+	 * steps, turns and lane changes of the car, until the view rests on the
+	 * car again. The spring is stiffer for cars that are fast on the screen,
+	 * so that they lag at most a tenth of the view behind its middle. The map
+	 * moves in the same frame with the PAN event of the graph, which draw.io
+	 * fires when it scrolls while dragging. Zooming keeps centering, a pan by
+	 * hand pauses it until the car is clicked again, and when the car leaves
+	 * or is deselected, the view comes to rest where it is heading.
+	 */
+	function centerView(now)
+	{
+		var c = graph.container;
+		var s = graph.view.scale;
+		var t = graph.view.translate;
+		var v = (config.center && focus != null && focus.status == null && !focus.centerPaused &&
+			focus.v.x != null) ? focus.v : null;
+
+		if (camera == null && v == null)
+		{
+			return false;
+		}
+
+		var rebase = camera == null || camera.s != s || camera.tx != t.x || camera.ty != t.y ||
+			camera.w != c.clientWidth || camera.h != c.clientHeight;
+
+		// Zooms in progress move the view on their own, and other scrolls
+		// than for a zoom, a new translate or size are pans by hand
+		if (zoomPreview || graph.panDx || graph.panDy || (!rebase &&
+			(Math.abs(c.scrollLeft - camera.sx) > 1 || Math.abs(c.scrollTop - camera.sy) > 1)))
+		{
+			if (!zoomPreview && focus != null && config.center)
+			{
+				focus.centerPaused = true;
+			}
+
+			camera = null;
+
+			return false;
+		}
+
+		// Starts at rest after zooms, page switches and resizes
+		if (rebase)
+		{
+			camera = {s: s, tx: t.x, ty: t.y, w: c.clientWidth, h: c.clientHeight, x: c.scrollLeft,
+				y: c.scrollTop, sx: c.scrollLeft, sy: c.scrollTop, ux: 0, uy: 0, glide: false,
+				v: null, px: 0, py: 0, speed: 0, last: now};
+		}
+
+		var dt = Math.min(0.1, Math.max(0, (now - camera.last) / 1000));
+		var w = camera.w;
+		var h = camera.h;
+		var omega = 3;
+		var tx = camera.x + camera.ux / omega;
+		var ty = camera.y + camera.uy / omega;
+		camera.last = now;
+
+		if (v != null)
+		{
+			var px = (v.x + t.x) * s;
+			var py = (v.y + t.y) * s;
+
+			// Speed of the car on the screen, smoothed over half a second
+			if (camera.v == v && dt > 0)
+			{
+				var speed = Math.sqrt((px - camera.px) * (px - camera.px) + (py - camera.py) * (py - camera.py)) / dt;
+				camera.speed += (speed - camera.speed) * (1 - Math.exp(-dt / 0.5));
+			}
+			else if (camera.v != v)
+			{
+				camera.speed = 0;
+			}
+
+			camera.v = v;
+			camera.px = px;
+			camera.py = py;
+			omega = Math.min(12, Math.max(3, 20 * camera.speed / Math.min(w, h)));
+
+			// The car in the middle, as far as the view can scroll
+			tx = Math.max(0, Math.min(c.scrollWidth - w, px - w / 2));
+			ty = Math.max(0, Math.min(c.scrollHeight - h, py - h / 2));
+
+			if (!camera.glide && (Math.abs(tx - camera.x) > w / 4 || Math.abs(ty - camera.y) > h / 4))
+			{
+				camera.glide = true;
+			}
+		}
+		else if (!camera.glide)
+		{
+			camera = null;
+
+			return false;
+		}
+
+		if (camera.glide && dt > 0)
+		{
+			// Exact step of the spring for any frame time. It pulls at most as
+			// for a view away, so that long glides start gently and cruise,
+			// and lets the car get farther from the middle only up to 0.4 of
+			// the view.
+			var k = Math.exp(-omega * dt);
+			var ex = camera.x - tx;
+			var ey = camera.y - ty;
+			tx = camera.x - Math.max(-w, Math.min(w, ex));
+			ty = camera.y - Math.max(-h, Math.min(h, ey));
+			ex = camera.x - tx;
+			ey = camera.y - ty;
+			var ax = (camera.ux + omega * ex) * dt;
+			var ay = (camera.uy + omega * ey) * dt;
+			camera.ux = (camera.ux - omega * ax) * k;
+			camera.uy = (camera.uy - omega * ay) * k;
+			var mx = Math.max(0.4 * w, Math.abs(ex));
+			var my = Math.max(0.4 * h, Math.abs(ey));
+			camera.x = tx + Math.max(-mx, Math.min(mx, (ex + ax) * k));
+			camera.y = ty + Math.max(-my, Math.min(my, (ey + ay) * k));
+			var x = Math.round(camera.x);
+			var y = Math.round(camera.y);
+
+			if (Math.abs(c.scrollLeft - x) >= 1 || Math.abs(c.scrollTop - y) >= 1)
+			{
+				c.scrollLeft = x;
+				c.scrollTop = y;
+
+				// The view cannot scroll farther
+				if (Math.abs(c.scrollLeft - x) > 1)
+				{
+					camera.x = c.scrollLeft;
+					camera.ux = 0;
+				}
+
+				if (Math.abs(c.scrollTop - y) > 1)
+				{
+					camera.y = c.scrollTop;
+					camera.uy = 0;
+				}
+
+				graph.fireEvent(new mxEventObject(mxEvent.PAN));
+			}
+
+			camera.sx = c.scrollLeft;
+			camera.sy = c.scrollTop;
+			var tolerance = Math.max(4, 0.02 * Math.min(w, h));
+
+			if (Math.sqrt(camera.ux * camera.ux + camera.uy * camera.uy) < 20 &&
+				(v == null || (Math.abs(tx - camera.x) < tolerance && Math.abs(ty - camera.y) < tolerance)))
+			{
+				camera.glide = false;
+				camera.ux = 0;
+				camera.uy = 0;
+
+				if (v == null)
+				{
+					camera = null;
+				}
+			}
+		}
+
+		return camera != null && camera.glide;
+	};
+
+	/**
+	 * Returns true if Center selected car is on and was paused by a pan by
+	 * hand, until the car is clicked again.
+	 */
+	function isCenterPaused()
+	{
+		return config.center && focus != null && focus.status == null && focus.centerPaused == true;
 	};
 
 	/**
@@ -5673,5 +5887,5 @@ window.TrafficSimulation = function(ui, listener)
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
 		vehicleShapes: vehicleShapes, speedStops: speedStops, getSpeedStops: getSpeedStops,
-		selectVehicle: selectVehicle, setDebug: setDebug};
+		selectVehicle: selectVehicle, isCenterPaused: isCenterPaused, setDebug: setDebug};
 };
