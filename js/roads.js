@@ -746,10 +746,15 @@ window.TrafficRoads = function(ui)
 
 	var getOutlineConstraint = graph.getOutlineConstraint;
 
+	/**
+	 * Connections to the outline of junctions are floating. Null instead of a
+	 * constraint without a point, which handlers read the point of, eg. the
+	 * hint of mxEdgeHandler while a road end is dragged over a junction.
+	 */
 	graph.getOutlineConstraint = function(point, terminalState, me)
 	{
 		return (terminalState != null && roads.isJunction(terminalState.style)) ?
-			new mxConnectionConstraint() : getOutlineConstraint.apply(this, arguments);
+			null : getOutlineConstraint.apply(this, arguments);
 	};
 
 	var getConnectionConstraint = graph.getConnectionConstraint;
@@ -761,7 +766,7 @@ window.TrafficRoads = function(ui)
 	graph.getConnectionConstraint = function(edge, terminal, source)
 	{
 		return (terminal != null && roads.isJunction(terminal.style)) ?
-			new mxConnectionConstraint() : getConnectionConstraint.apply(this, arguments);
+			new mxConnectionConstraint(null, false) : getConnectionConstraint.apply(this, arguments);
 	};
 
 	var getPerimeterFunction = graph.view.getPerimeterFunction;
