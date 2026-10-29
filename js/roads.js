@@ -22,6 +22,11 @@
  * the outside and a central island in islandColor. Traffic circulates
  * counterclockwise and enters and leaves on the roads connected to it.
  *
+ * A crossing is an ellipse. With roads connected, it is painted as asphalt
+ * as wide as its widest road and the roads end there, so that they join
+ * without a disc that is larger than the roads. Its bounds stay the area
+ * for selecting and connecting it.
+ *
  * Default colors are light-dark pairs with the same color on both sides, so
  * that the dark mode of the editor does not invert them. Other draw.io apps
  * paint roads as plain connectors and roundabouts as rectangles.
@@ -112,8 +117,9 @@ window.TrafficRoads = function(ui)
 
 	/**
 	 * Returns the given points with the ends moved into round junctions, so
-	 * that the asphalt joins them without notches. Ends in junctions that are
-	 * narrower than the road move to the center and are added to discs.
+	 * that the asphalt joins them without notches. Ends in junctions other
+	 * than crossings that are narrower than the road move to the center and
+	 * are added to discs.
 	 */
 	RoadShape.prototype.extendEnds = function(pts, h, discs)
 	{
@@ -126,7 +132,9 @@ window.TrafficRoads = function(ui)
 
 			if (terminal != null)
 			{
-				var r = Math.min(terminal.width, terminal.height) / 2 / this.scale;
+				var crossing = roads.getCrossingRadius(terminal);
+				var r = (crossing != null) ? crossing :
+					Math.min(terminal.width, terminal.height) / 2 / this.scale;
 				var e = (h < r) ? Math.min(r, r - Math.sqrt(r * r - h * h) + 0.5) : r;
 				var p0 = pts[(i == 0) ? 0 : n - 1];
 				var p1 = pts[(i == 0) ? 1 : n - 2];
@@ -137,7 +145,7 @@ window.TrafficRoads = function(ui)
 					result[(i == 0) ? 0 : n - 1] = new mxPoint(p0.x + (p0.x - p1.x) / len * e,
 						p0.y + (p0.y - p1.y) / len * e);
 
-					if (h >= r)
+					if (h >= r && crossing == null)
 					{
 						discs.push(result[(i == 0) ? 0 : n - 1]);
 					}
@@ -401,6 +409,145 @@ window.TrafficRoads = function(ui)
 
 	mxCellRenderer.registerShape('roundabout', RoundaboutShape);
 
+	function CrossingShape()
+	{
+		mxEllipse.call(this);
+	};
+
+	mxUtils.extend(CrossingShape, mxEllipse);
+
+	/**
+	 * Paints the asphalt of a crossing with roads as wide as its widest road
+	 * and keeps its bounds for events, else an ellipse.
+	 */
+	CrossingShape.prototype.paintVertexShape = function(c, x, y, w, h)
+	{
+		var r = roads.getCrossingRadius(this.state);
+
+		if (r == null)
+		{
+			mxEllipse.prototype.paintVertexShape.apply(this, arguments);
+		}
+		else
+		{
+			c.setShadow(false);
+			c.setFillColor(mxConstants.NONE);
+			c.setStrokeColor(mxConstants.NONE);
+			c.ellipse(x, y, w, h);
+			c.fillAndStroke();
+
+			c.setFillColor(getColor(this, mxConstants.STYLE_FILLCOLOR, roads.asphalt));
+			c.ellipse(x + w / 2 - r, y + h / 2 - r, 2 * r, 2 * r);
+			c.fill();
+		}
+	};
+
+	var getShapeConstructor = graph.cellRenderer.getShapeConstructor;
+
+	graph.cellRenderer.getShapeConstructor = function(state)
+	{
+		return (graph.model.isVertex(state.cell) && roads.isCrossing(state.style)) ?
+			CrossingShape : getShapeConstructor.apply(this, arguments);
+	};
+
+	var getPerimeterFunction = graph.view.getPerimeterFunction;
+
+	/**
+	 * Roads end at the asphalt of crossings.
+	 */
+	graph.view.getPerimeterFunction = function(state)
+	{
+		var r = roads.getCrossingRadius(state);
+
+		if (r != null)
+		{
+			var s = this.scale;
+
+			return function(bounds, vertex, next)
+			{
+				var cx = vertex.getCenterX();
+				var cy = vertex.getCenterY();
+				var d = (next != null) ? roads.getDistance(new mxPoint(cx, cy), next) : 0;
+
+				return (d > 0) ? new mxPoint(cx + (next.x - cx) / d * r * s,
+					cy + (next.y - cy) / d * r * s) : new mxPoint(cx + r * s, cy);
+			};
+		}
+
+		return getPerimeterFunction.apply(this, arguments);
+	};
+
+	/**
+	 * Updates crossings and their roads when roads are connected,
+	 * disconnected, added, removed or restyled, as their size follows from
+	 * the roads.
+	 */
+	graph.model.addListener(mxEvent.CHANGE, function(sender, evt)
+	{
+		var changes = evt.getProperty('edit').changes;
+		var model = graph.model;
+		var crossings = new Set();
+
+		function add(cell)
+		{
+			if (cell != null && model.isVertex(cell))
+			{
+				crossings.add(cell);
+			}
+		};
+
+		for (var i = 0; i < changes.length; i++)
+		{
+			var change = changes[i];
+
+			if (change instanceof mxTerminalChange)
+			{
+				add(change.terminal);
+				add(change.previous);
+			}
+			else if (change instanceof mxStyleChange || change instanceof mxChildChange)
+			{
+				var cell = (change instanceof mxChildChange) ? change.child : change.cell;
+
+				if (cell != null && model.isEdge(cell))
+				{
+					add(cell.getTerminal(true));
+					add(cell.getTerminal(false));
+				}
+				else if (change instanceof mxStyleChange)
+				{
+					add(cell);
+				}
+			}
+		}
+
+		var states = [];
+
+		crossings.forEach(function(cell)
+		{
+			var state = graph.view.getState(cell);
+
+			if (state != null && roads.isCrossing(state.style))
+			{
+				graph.view.invalidate(cell, false, true);
+				states.push(state);
+			}
+		});
+
+		if (states.length > 0)
+		{
+			graph.view.validate();
+
+			for (var i = 0; i < states.length; i++)
+			{
+				if (states[i].shape != null)
+				{
+					graph.cellRenderer.redraw(states[i], true);
+				}
+			}
+		}
+	});
+
 	/**
 	 * Returns the palette entry for a road from left to right.
 	 */
@@ -646,6 +793,43 @@ TrafficRoads.getLaneOffsets = function(style)
 	for (var k = 0; k < lanes; k++)
 	{
 		result.push(((twoWay) ? k + 0.5 : k - (lanes - 1) / 2) * lw);
+	}
+
+	return result;
+};
+
+/**
+ * Returns true for crossings, which are ellipses.
+ */
+TrafficRoads.isCrossing = function(style)
+{
+	return style != null && style[mxConstants.STYLE_SHAPE] == mxConstants.SHAPE_ELLIPSE;
+};
+
+/**
+ * Returns the radius of the asphalt of the given crossing state, half the
+ * width of its widest road, or null if it is no crossing or has no roads.
+ */
+TrafficRoads.getCrossingRadius = function(state)
+{
+	var result = null;
+
+	if (state != null && TrafficRoads.isCrossing(state.style))
+	{
+		var view = state.view;
+		var model = view.graph.model;
+
+		for (var i = 0; i < model.getEdgeCount(state.cell); i++)
+		{
+			var edge = model.getEdgeAt(state.cell, i);
+			var edgeState = view.getState(edge);
+			var style = (edgeState != null) ? edgeState.style : view.graph.getCellStyle(edge);
+
+			if (style != null && style[mxConstants.STYLE_SHAPE] == 'road')
+			{
+				result = Math.max(result || 0, TrafficRoads.getRoadWidth(style) / 2);
+			}
+		}
 	}
 
 	return result;
