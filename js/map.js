@@ -13,10 +13,10 @@
  * scale in the mercator attribute of that text (x = (X - ox) * k, y =
  * (oy - Y) * k), so that the map tiles (Web Mercator, 256 pixels) can be
  * placed under the roads. The map is a layer behind the diagram container,
- * whose background is then transparent, and the draw pane with the roads
- * and junctions is not displayed, which is faster than invisible, so that
- * they cannot be clicked, while the overlay pane with the vehicles, the
- * traffic lights and the selection stays. Each change of the scale, the
+ * whose background is then transparent, so that the roads and junctions,
+ * the traffic lights and the vehicles above it show and work as without it,
+ * each as the simulation shows them (roads, lights and vehicles in its
+ * config). Each change of the scale, the
  * translate, the scroll, the pan and the zoom preview of draw.io places the
  * tiles again: of the zoom level with the size that is nearest to the
  * scale, only those in view, with the tiles of the last level below until
@@ -267,7 +267,6 @@ window.TrafficMap = function(ui, options)
 		{
 			shown = nowShown;
 			container.classList.toggle('trafficMapShown', shown);
-			graph.view.getDrawPane().style.display = (shown) ? 'none' : '';
 			layer.style.display = (shown) ? '' : 'none';
 			notice.innerHTML = '';
 		}

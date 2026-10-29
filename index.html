@@ -30,10 +30,15 @@
 		<label class="row"><span>Dawdling</span><select id="noise" disabled></select></label>
 		<label class="check"><input id="reroute" type="checkbox" disabled> Reroute when waiting</label>
 		<label class="check"><input id="passEitherSide" type="checkbox" disabled> Pass on either side (US)</label>
-		<label class="check"><input id="vehicles" type="checkbox" disabled> Show vehicles</label>
+		<div class="layers" role="group" aria-labelledby="layers-label">
+			<p id="layers-label" class="group-label">Layers from the bottom up</p>
+			<label class="check"><input id="map" type="checkbox" disabled> Map background</label>
+			<p id="map-hint" class="hint check-hint">For towns loaded from OpenStreetMap.</p>
+			<label class="check"><input id="roads" type="checkbox" disabled> Roads and junctions</label>
+			<label class="check"><input id="lights" type="checkbox" disabled> Traffic lights</label>
+			<label class="check"><input id="vehicles" type="checkbox" disabled> Vehicles</label>
+		</div>
 		<label class="check"><input id="density" type="checkbox" disabled> Show density</label>
-		<label class="check"><input id="map" type="checkbox" disabled> Map background</label>
-		<p id="map-hint" class="hint check-hint">For towns loaded from OpenStreetMap.</p>
 		<label class="check"><input id="labels" type="checkbox" disabled> Show counts at roads and junctions</label>
 		<p id="labels-hint" class="hint check-hint" hidden>Now: cars there, exp: cars on their way there,
 			in and out: cars that entered and left since the start.</p>

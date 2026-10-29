@@ -204,6 +204,17 @@ select, input[type="number"] {
 	margin: 2px 0 0 22px;
 }
 
+/* Layers of the drawing, shown and hidden on their own */
+.layers {
+	margin: 10px 0 4px;
+}
+
+.group-label {
+	margin: 0;
+	font-size: 12px;
+	color: var(--muted);
+}
+
 /* Shapes of the vehicles and colors of their speed */
 .legend {
 	display: flex;

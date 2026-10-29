@@ -55,7 +55,8 @@
  * the shape of their type along their lane, turned in their direction
  * through curves, crossings, roundabouts and lane changes, and in the color
  * of their speed from blue to red, unless vehicles in the config is off,
- * which skips painting them. They, traffic lights and the density of the
+ * which skips painting them, like lights for the traffic lights and roads
+ * for the drawing of the diagram. They, traffic lights and the density of the
  * lanes are painted into the overlay pane, and optionally labels with the
  * cars that are on each road and junction in view, on their way there, and
  * that entered and left. Each link and junction counts its cars for the
@@ -163,7 +164,8 @@ window.TrafficSimulation = function(ui, listener)
 	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1, passEitherSide: false, vehicles: true, mapBackground: false};
+		trucks: 0.2, fast: 0.1, passEitherSide: false, roads: true, lights: true, vehicles: true,
+		mapBackground: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -3236,11 +3238,15 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
+		// Layers from the bottom up: density, route, traffic lights, cars
 		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
-			route: createNode('g', root, {}), bars: createNode('g', root, {}),
+			route: createNode('g', root, {}), bars: createNode('g', root, {}), heads: createNode('g', root, {}),
 			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
-			heads: createNode('g', root, {}), labels: createNode('g', root, {}), focus: createNode('g', root, {})};
+			labels: createNode('g', root, {}), focus: createNode('g', root, {})};
 		overlay.cars.style.display = (config.vehicles) ? '' : 'none';
+		overlay.bars.style.display = (config.lights) ? '' : 'none';
+		overlay.heads.style.display = (config.lights) ? '' : 'none';
+		graph.view.getDrawPane().style.display = (config.roads) ? '' : 'none';
 		outlines = {scale: 0};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
@@ -3432,7 +3438,8 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		for (var i = 0; i < net.crossings.length; i++)
+		// Hidden lights keep the state they show until they are shown again
+		for (var i = 0; i < net.crossings.length && config.lights; i++)
 		{
 			var crossing = net.crossings[i];
 
@@ -3737,12 +3744,13 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the colors of the speeds for the background of the roads: dark
-	 * ones on the light map background, else light ones (see speedStops).
+	 * Returns the colors of the speeds for what is under the vehicles: dark
+	 * ones on the light map background without the roads, else light ones on
+	 * the gray roads (see speedStops).
 	 */
 	function getSpeedStops()
 	{
-		return (config.mapBackground && !(typeof Editor !== 'undefined' && Editor.isDarkMode())) ?
+		return (config.mapBackground && !config.roads && !(typeof Editor !== 'undefined' && Editor.isDarkMode())) ?
 			mapSpeedStops : speedStops;
 	};
 
@@ -4942,9 +4950,11 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Sets the given option. Speed changes restart the steps and the
 	 * interpolation, Show density repaints the roads, hiding the vehicles
-	 * stops painting them, also the selected one, and mapBackground, which
-	 * the page sets while the map is behind the roads, changes the colors of
-	 * the vehicles.
+	 * stops painting them, also the selected one, hiding the roads takes the
+	 * draw pane out of the page, so that its cells are neither painted nor
+	 * hit, hiding the traffic lights stops painting their stop bars and heads
+	 * while they keep switching, and mapBackground, which the page sets while
+	 * the map is behind the roads, changes the colors of the vehicles.
 	 */
 	function setOption(key, value)
 	{
@@ -4972,6 +4982,29 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			schedule();
 		}
+		else if (key == 'roads' && overlay != null)
+		{
+			// Hidden roads and junctions are neither painted nor hit, and the
+			// selection of the diagram ends
+			graph.view.getDrawPane().style.display = (value) ? '' : 'none';
+
+			if (!value)
+			{
+				graph.clearSelection();
+			}
+
+			schedule();
+		}
+		else if (key == 'lights' && overlay != null)
+		{
+			overlay.bars.style.display = (value) ? '' : 'none';
+			overlay.heads.style.display = (value) ? '' : 'none';
+
+			if (value && net != null)
+			{
+				updateNetwork();
+			}
+		}
 		else if (key == 'vehicles' && overlay != null)
 		{
 			// Hiding the vehicles ends following the selected one
@@ -4997,6 +5030,14 @@ window.TrafficSimulation = function(ui, listener)
 
 	var tick = roads.guard(frame, 'simulation frame');
 	graph.model.addListener(mxEvent.CHANGE, roads.guard(invalidate, 'simulation model change'));
+
+	// Hidden roads and junctions cannot be selected, also not by a rectangle
+	var isCellSelectable = graph.isCellSelectable;
+
+	graph.isCellSelectable = function(cell)
+	{
+		return config.roads && isCellSelectable.apply(this, arguments);
+	};
 
 	// Paints the vehicles in the colors of the theme, also when paused
 	ui.addListener('darkModeChanged', function()

@@ -55,15 +55,23 @@ see [Loading Your Town](#loading-your-town).
   their road or, with a line, their junction where they overlap no road,
   junction, traffic light or other label, and are hidden when more than
   400 roads and junctions are in view.
-- Show vehicles in the panel, on by default, paints the vehicles. Off, the
-  simulation runs on exactly as before, with its statistics, counts,
-  density and traffic lights, but no vehicle is painted, which saves the
-  time of painting them (Zurich with all streets and 1,000 cars at 10x:
-  60 instead of 40 frames per second with the map background, 24 instead
-  of 13 without, in Chrome without a GPU), clicks go to the roads under
-  them, and a vehicle that is followed is let go. On again, the vehicles
-  show where they are now. Like the other display settings, it is not kept
-  when the page reloads.
+- The layers in the panel are shown and hidden each on its own, in any
+  combination, from the bottom up: Map background (for towns, see
+  [Map Background](#map-background)), Roads and junctions, Traffic lights
+  and Vehicles, all on by default. The simulation runs on exactly as
+  before whatever is shown, with its statistics, counts and density, and
+  a hidden layer is not painted, which saves the time of painting it
+  (Zurich with all streets and 1,000 cars at 10x: 11 frames per second
+  with all layers, 47 with only the map and the vehicles, in Chrome
+  without a GPU). Hidden roads and junctions cannot be clicked or
+  selected, also not with a rectangle, and the selection ends; shown, they
+  are clicked, selected and edited as usual, also on the map. Hidden
+  traffic lights keep switching, only their stop bars and lights are not
+  painted (the symbol of the junction belongs to the roads). With hidden
+  vehicles, clicks go to the roads under them and a vehicle that is
+  followed is let go. On again, each layer shows the state of now. Like
+  the other display settings, the layers are not kept when the page
+  reloads.
 - Click a vehicle to follow it: a ring and a label with its type and speed
   drive along with it, its route is colored from its start A to its
   destination B, and the Vehicle section of the panel shows its data live:
@@ -102,10 +110,11 @@ when they stand over violet and magenta to red for the fastest, as in the
 legend of the panel. The road is the same mid-gray (#5f6368) in both
 themes, so the vehicles on it are light (#71bfff, #baafff, #f993ff,
 #ff98ca, #ff9f8f), with a contrast of at least 3:1 to the road at every
-speed, also on the dark map background. On the light map background,
-where streets are white or pale, they are dark (#0d61ff, #792cff, #b100bd,
-#c20080, #cb0e00), at least 5.8:1 to white. Their colors and the legend
-follow the theme and the map background at once. Cars keep their lane. They change to the next lane
+speed, also on the dark map background. On the light map background with
+the roads and junctions hidden, where the streets under them are white or
+pale, they are dark (#0d61ff, #792cff, #b100bd, #c20080, #cb0e00), at
+least 5.8:1 to white. Their colors and the legend follow the theme and the
+layers at once. Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
 there is space, each only if no car is close behind there. With Pass on
@@ -227,16 +236,16 @@ Under Network, Load your town loads the roads of a town or city from
 ### Map Background
 
 Towns show the map of OpenStreetMap behind their roads, so that the cars
-drive on the streets of the map. Map background in the panel turns it on
-and off, like the other display settings: on, the map is behind the
-diagram and the roads and junctions of the diagram are not drawn; off,
-there is no map and the roads are drawn as in the examples, eg. to edit
-them or to compare. The vehicles, the traffic lights, the density, the
-counts and the selection show either way. It is on by default. The
-examples have no real coordinates, so the checkbox is disabled for them
-and for other diagrams. With the map, roads and junctions cannot be
-clicked (selecting by dragging a rectangle works), turn it off to edit
-them.
+drive on the streets of the map. Map background in the panel, the bottom
+layer, turns it on and off like the other layers: on, the map is behind
+the diagram, and the roads and junctions, the traffic lights and the
+vehicles show on it as their layers are set, eg. only the vehicles on the
+map, or the roads on the map, where they are clicked, selected and edited
+as without it; off, there is no map, as in the examples. The density, the
+counts and the selection show either way. It is on by default for towns.
+The examples have no real coordinates, so the checkbox is disabled for
+them and for other diagrams. The notice of OpenStreetMap shows while a
+town is open, with the map and without.
 
 The map is a live layer of tiles behind the transparent canvas of draw.io
 (`js/map.js`), placed again at each change of the zoom, the scroll and the
@@ -313,15 +322,17 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
 Traffic drives on the right in all towns, and turn lanes are not loaded.
 
 Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density,
-in frames per second with the map and without:
+in frames per second with all layers, with only the map and the vehicles,
+and with all layers but the map, in light mode (dark mode is the same
+within a few frames per second):
 
-| Town | Junctions | Roads | Cars | Opens in | With map | Without |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Zug, all streets | 409 | 519 | 120 | 0.4 s | 60 | 60 |
-| Zurich, main and collector | 928 | 1,462 | 500 | 1.1 s | 58 | 30 |
-| Zurich, all streets | 3,864 | 5,719 | 1,000 | 3.1 s | 38 | 12 |
-| Los Angeles, 14 by 20 km, main and collector | 3,238 | 5,139 | 600 | 4.1 s | 23 | 8 |
-| Los Angeles, 15 by 21 km, main and collector | 3,722 | 5,872 | 800 | 4.6 s | 18 | 6.5 |
+| Town | Junctions | Roads | Cars | Opens in | All layers | Map and vehicles | Without map |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zug, all streets | 409 | 519 | 120 | 0.4 s | 60 | 60 | 60 |
+| Zurich, main and collector | 928 | 1,462 | 500 | 1.1 s | 30 | 60 | 30 |
+| Zurich, all streets | 3,864 | 5,719 | 1,000 | 3.1 s | 11 | 47 | 13 |
+| Los Angeles, 14 by 20 km, main and collector | 3,238 | 5,139 | 600 | 4.1 s | 7.5 | 50 | 8 |
+| Los Angeles, 15 by 21 km, main and collector | 3,722 | 5,872 | 800 | 4.6 s | 6 | 40 | 7 |
 
 Bern (all streets) has 2,002 junctions and 161 traffic lights. Without
 the map, sections of Los Angeles with 4,679 junctions and 7,316 roads ran
