@@ -2036,16 +2036,22 @@
 		var typeSpeeds = [];
 		var topSpeed = document.createElement('span');
 
-		// Shapes of the vehicles as in the editor with their top speed and
-		// the colors of the speeds
+		// Shapes of the vehicles as in the editor, in the same scale, so that
+		// trucks are as much longer as they are, with their top speed and the
+		// colors of the speeds
+		var longest = Math.max.apply(Math, typeNames.map(function(type)
+		{
+			return sim.vehicleShapes[type[0]].length;
+		}));
+
 		typeNames.forEach(function(type)
 		{
 			var shape = sim.vehicleShapes[type[0]];
 			var row = document.createElement('span');
 			row.className = 'vehicle';
 			var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-			svg.setAttribute('viewBox', (-shape.length / 2 - 0.2) + ' -1.8 ' + (shape.length + 0.4) + ' 3.6');
-			svg.setAttribute('width', Math.round(12 * (shape.length + 0.4) / 3.6));
+			svg.setAttribute('viewBox', (-shape.length / 2 - 0.2) + ' -1.8 ' + (longest + 0.4) + ' 3.6');
+			svg.setAttribute('width', Math.round(12 * (longest + 0.4) / 3.6));
 			svg.setAttribute('height', 12);
 			svg.setAttribute('aria-hidden', 'true');
 

@@ -100,8 +100,10 @@ editor; draw.io does not use Alt+Shift+S.
   each layer shows the state of now. Like the other display settings, the
   layers are not kept when the page reloads.
 - Show density in the panel, off by default, colors each lane by its
-  density, from green when it is free to red at half of its cells (stop
-  and go).
+  density, from green when it is free to red when vehicles take half of
+  its cells (stop and go), so that a truck counts twice. The statistics
+  show the density as the share of all cells that vehicles take; the
+  other counts, the throughput and the queues count vehicles.
 - Click a vehicle to follow it: a ring and a label with its type and speed
   drive along with it, its route is colored from its start A to its
   destination B, and the Vehicle section of the panel shows its data live:
@@ -156,13 +158,31 @@ Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
 accelerate, brake to the gap, dawdle, move. Vehicles have their own top
 speed: trucks 2 cells per step below Max. speed, cars Max. speed and fast
 cars 1 cell per step above it, with the shares of trucks and fast cars in
-the panel, and at most the speed limit of the road. Faster vehicles queue behind slower ones on roads with one lane
-and pass them where there is a free lane. Vehicles are painted from above
-as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
-along their lane, turned in their direction through curves, crossings,
-roundabouts and lane changes, and in the color of their speed, as in the
-legend of the panel. Colors in the panel picks the set of colors from
-standing to the fastest vehicles: Blue, violet, red (the default, from blue
+the panel, and at most the speed limit of the road. Vehicles have their
+own length too: cars and fast cars take one cell and trucks two (15 m).
+A vehicle moves with its head and keeps the cells of its length behind
+it, so that the one behind brakes to the gap behind its tail: in its
+lane, and while its tail is still in a crossing, a roundabout or the
+last cell of the lane before, also there (a vehicle clears a lane, a
+crossing or a roundabout only when its tail has). Lane changes, passing,
+entering roads, crossings and roundabouts and the network rebuilt
+while the cars drive all need room for the whole length. Faster
+vehicles queue behind slower ones on roads with one lane and pass them
+where there is a free lane. Vehicles are painted from above as a car of
+4.5 m, a truck of 12.5 m with a cab and a trailer, and a sleeker fast
+car of 4.8 m with a spoiler, each inside the cells it takes with a gap
+of at least 1.5 m to the next, also where cells are shorter (short
+roads, inner ring lanes, short curves through crossings), along their
+lane, turned in their direction through curves, crossings, roundabouts
+and lane changes, trucks from the cell of their head to the cell of
+their tail, and in the color of their speed, as in the legend of the
+panel. Zoomed out, they are painted larger so that cars stay 9 pixels
+long, but only as long as fits in their cells (cars up to 6 m and
+trucks up to 13.5 m, wider by half as much), so that they never overlap
+down to about 65 % zoom; further out they keep at least 4 pixels for a
+car and 9 for a truck, where vehicles in queues can touch. Colors in the
+panel picks the set of colors from standing to the fastest vehicles:
+Blue, violet, red (the default, from blue
 when they stand over violet and magenta to red), Red, yellow, green (as on
 traffic maps), Yellow to green, Blue to orange (colorblind-friendly, as it
 changes only between blue and orange, which color vision deficiencies keep
@@ -207,7 +227,10 @@ settings, the checkbox is not kept when the page reloads.
 Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
-there is space, each only if no car is close behind there. With Pass on
+there is space, each only if the cells of their length are free there
+and no car is close behind, and the cells that they leave stay taken
+for that step, so that the car behind does not drive into them while
+they move across. With Pass on
 either side (US) in the panel, off by default, every lane is its own lane:
 a blocked car passes on the left or the right, where the next lane has
 more space (the left if both have as much), with the same checks and
@@ -218,15 +241,17 @@ and the passing through the oncoming lane below is the same too. With
 Overtake in the oncoming lane in the panel, on by default, on roads with
 one lane per direction, a car that is blocked by a slower vehicle, eg. a
 truck, passes it through the oncoming lane, with a probability of 50 %
-per step, one car per road at a time: only if the cell behind it and two
-cells ahead of the slower one are free, if it can be past while
+per step, one car per road at a time: only if the cell behind it and as
+many cells ahead of the slower one as it is long and one more are free
+(two for a car), if it can be past the whole length of the other while
 accelerating to its top speed and back at least 8 cells (60 m) before the
 end of the road (also before crossings, roundabouts and joints) and 12
 before a turn, and if no oncoming car at the top speed, or one that comes
 from the end of the road, where the driver cannot see, can come within 3
 cells meanwhile. While it passes, oncoming cars brake for it and the cars
-behind it keep the cell behind it free. It goes back to its lane as soon
-as it is ahead of the other, and aborts and falls back in behind if the
+behind it keep the cell behind it free, or behind the tail of the other
+while it is beside it. It goes back to its lane as soon as it is ahead
+of the other, and aborts and falls back in behind its tail if the
 car ahead of the other leaves no space, an oncoming car or the end of
 the road comes too near or it takes longer than 60 steps. Its lane changes
 are painted like the others. Cars only pass where vehicles have different
@@ -242,19 +267,61 @@ as many cars pass per step as their widest incoming road has lanes and
 take the incoming roads in turns. Cars only pass from
 lanes that allow their turn and drive through crossings on a curve at one
 cell per step (27 km/h) to a lane of the next road that suits their turn
-and the turn after it. Crossings of two roads without a traffic light are
+and the turn after it, behind the tail of the car ahead on its way
+there, and only if the cells of their length at the start of that lane
+are free, so that they do not stay in the crossing. A car starts only
+on a way that no other car in the crossing crosses, until the tail of
+that car is past the place where their ways come closer than 3 m; cars
+from other lanes merge into the same lane in turns if one of them is a
+truck, and a car that waits for a crossing way has its turn before
+others that would cross its way. So crossing cars take turns and never
+drive through each other. Crossings of two roads without a traffic light are
 joints in the road: the first car in a lane looks past the end of its road
 into the next and drives through at its speed in all lanes, without the
 turns of the lanes, and cars that start there wait for a gap. Roundabouts are rings of lanes of cells at one cell
-per step; cars enter the outer lane when it is free before the entry, move
-inward for exits far away and back out before their exit, and leave where
-their next road starts. Cars drive from a random junction to another, half
+per step; cars enter the outer lane when it is free before the entry and
+was free at the start of the step, trucks also not while a truck leaves
+at the exit next to them, move inward for exits far away and back out
+before their exit, once their tail is in the ring, and leave where their
+next road starts, with their tail in the ring until they drive on.
+Vehicles start at the start of their first road with their whole length
+in it. Cars drive from a random junction to another, half
 of them from or to a gate if there are gates, on the fastest route under the current speeds with the turns that the lanes
 allow (Dijkstra on the roads) and look for another route after waiting 60
 seconds at a junction. Cars that have not arrived 5 minutes after they
 started, or four times the time of their route without other cars if that
 is longer, leave the network, so that gridlocks can form and dissolve. The
 statistics count them as not arrived, and the debug output lists them.
+
+The lengths and the turns in crossings cost throughput where vehicles
+queue or cross often, as on real roads. Tested on 2026-10-29 with the same
+random draws over 20 minutes after 5, in cars that arrived per hour and
+their average speed, before vehicles had a length and now, and with cars
+only (no trucks), which shows the turns in crossings alone:
+
+| Network, cars, trucks | Before | Now | Cars only, before / now |
+| --- | --- | --- | --- |
+| Town, 60, 20 % (defaults) | 2,514, 38 km/h | 2,427, 38 km/h | |
+| Town, 200, 50 % | 6,738, 33 km/h | 4,608, 23 km/h | 6,738 / 5,940 |
+| Grid, 150, 50 % | 6,189, 43 km/h | 3,567, 27 km/h | 6,156 / 4,743 |
+| Roundabout, 80, 50 % | 4,890, 55 km/h | 3,360, 37 km/h | 5,079 / 4,803 |
+| Small, 100, 50 % | 2,934, 25 km/h | 2,319, 21 km/h | |
+| Race, 60, 50 % | 2,817, 60 km/h | 2,577, 54 km/h | |
+| Axhausen, 150, 50 % | 3,573, 77 km/h | 3,522, 75 km/h | |
+| Bottleneck, 250, 50 % | 4,647, 31 km/h | 3,012, 23 km/h | |
+| Zurich, main and collector, 500, 50 % | 2,520, 34 km/h | 2,397, 33 km/h | |
+| Zurich, main and collector, 500, 20 % | 2,631, 34 km/h | 2,532, 33 km/h | |
+
+In the Town all speed limits are at most the top speed of trucks, so
+trucks used to drive exactly like cars there. Painted at their size
+(300 %), no vehicles overlapped in these runs, except at the junction
+where the bypass of the Bottleneck example meets the main road at a
+sharp angle, so that the end of the bypass lies on the start of the main
+road, and in Zurich, where vehicles side by side can touch where lanes
+bend sharply near junctions and roads cross without a junction (bridges).
+A step takes about 0.3 ms longer with 1,000 vehicles in Zurich and the
+frame rate stays the same (35 to 36 frames per second with 500 vehicles,
+half of them trucks, at 10x in Chrome without a GPU).
 
 ## Trips
 
@@ -615,7 +682,9 @@ how they end, crossings, roundabouts, arrivals, reroutes, phases) with the type 
 average speed per type to the console, and a warning with the junctions when no
 car moves. Each step it checks the cars that pass through the oncoming lane
 and warns if one shares its cell with an oncoming car, is at the end of its
-road or passes for longer than 60 steps. `?dev=1` or `?test=1` also passes `test=1` to the editor, which
+road or passes for longer than 60 steps, and it warns if the tail of a
+truck found a cell taken, which must not happen (tailConflicts in the
+summary). `?dev=1` or `?test=1` also passes `test=1` to the editor, which
 then writes its own debug messages and has a Develop menu.
 
 ## How It Works
@@ -674,9 +743,17 @@ then writes its own debug messages and has a Develop menu.
   runs the model and paints the vehicles, the density of the lanes and the
   traffic lights into the overlay pane of the graph. Each vehicle is one
   path with the outline of its type and the windows cut out, at its place
-  and turned in its direction, filled with the color of its speed. The
-  outlines are made once per type and degree, as a new path paints faster
-  than a new transform. It never changes the diagram, except for imports
+  and turned in its direction, filled with the color of its speed, and
+  shortened where its cells are shorter. Trucks are painted between the
+  point of their head, which moves along its way like the cars, and the
+  cell of their tail, which moves straight from where it was in the step.
+  The outlines are made once per type, degree and length, as a new path
+  paints faster than a new transform. Vehicles are in each cell that they
+  take, in the cells of lanes and rings, with their tail also in the last
+  cell of the lane before a crossing or in the ring where it left
+  (`setTail`), so that every check of a free cell sees their length, and
+  the ways through each crossing are made once with the ways that they
+  touch (`Crossing.getWay`). It never changes the diagram, except for imports
   and the trips of a page that the panel sets. New cars get their trips
   from `pickTrip` with the weights of `buildTrips`, made once per network,
   by binary search in cumulative weights and the gravity factor by
