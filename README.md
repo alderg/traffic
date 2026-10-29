@@ -112,9 +112,34 @@ started, or four times the time of their route without other cars if that
 is longer, leave the network, so that gridlocks can form and dissolve. The
 statistics count them as not arrived, and the debug output lists them.
 
-The examples are the networks of the Java version: Small, Race, Axhausen and
-Portland (8548 crossings). `tools/net2drawio.py` converts its `.net` files,
-and the Import button inserts them into the current diagram.
+## Examples
+
+The Example menu under Network opens small networks that show what the
+simulation does. All of them were built for this project, without map data
+from elsewhere: Small, Race and Axhausen for the Java version, converted
+from its `.net` files with `tools/net2drawio.py` (the Import button inserts
+such files into the current diagram), and the others for the browser.
+
+- **Small, with a traffic light**: 15 crossings of one-way roads around
+  blocks, with a traffic light where three roads meet.
+- **Race**: four one-way roads in a ring, where faster vehicles queue behind
+  slower ones on one lane.
+- **Axhausen**: 21 crossings of one-way and two-way roads over 6 km, where
+  cars drive fast and take the fastest of several routes.
+- **Roundabout with five arms**: a roundabout with two ring lanes where five
+  roads meet, one of them with two lanes per direction. Cars give way to
+  the ring, move to the inner lane for exits far away and back out before
+  their exit.
+- **Grid with traffic lights**: 4 by 4 junctions 200 m apart with traffic
+  lights (15 s of green) at the four in the middle, one-way streets inside
+  a two-way ring, and four entries with gates where half of the cars start
+  or end, so that traffic crosses the grid.
+- **Bottleneck with a bypass**: a road with two lanes per direction narrows
+  to one lane at 30 km/h for 400 m, like roadworks, and a longer bypass at
+  50 km/h runs around it, with gates at both ends. Cars pick the route that
+  is faster under the current speeds: with 60 cars fewer than 1 in 10 take
+  the bypass, with 250 cars a queue stands before the lane drop and nearly
+  1 in 3 do.
 
 ## Loading Your Town
 
@@ -141,8 +166,7 @@ Under Network, Load your town loads the roads of a town or city from
   choose main roads or a section. After loading, networks with more than
   9,000 junctions or 12,000 roads are not opened either, with their size;
   a section or fewer roads are then built from the loaded roads without
-  loading again. Portland, the largest example with 8,548 crossings and
-  11,166 roads, opens in about 4 s, and a town at the limit about as fast.
+  loading again. A network at the limit opens in about 4 s.
 - Load shows its progress (the server, the MB loaded, the seconds) with a
   Cancel button, builds the network and opens it, and sets Cars for its
   size (1 per 1.5 km of lanes, 100 to 1,500). Copy Link copies a link to

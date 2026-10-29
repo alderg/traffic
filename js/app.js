@@ -25,7 +25,9 @@
 		{label: 'Small, with a traffic light', name: 'small'},
 		{label: 'Race', name: 'race'},
 		{label: 'Axhausen', name: 'axhausen'},
-		{label: 'Portland (4.1 MB)', name: 'portland'}];
+		{label: 'Roundabout with five arms', name: 'roundabout'},
+		{label: 'Grid with traffic lights', name: 'grid'},
+		{label: 'Bottleneck with a bypass', name: 'bottleneck'}];
 	var frame = document.getElementById('editor');
 	var params = new URLSearchParams(window.location.search);
 	var debug = params.get('dev') != '0' && params.get('test') != '0';
