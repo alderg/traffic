@@ -64,7 +64,10 @@ inward for exits far away and back out before their exit, and leave where
 their next road starts. Cars drive from a random junction to another on
 the fastest route under the current speeds with the turns that the lanes
 allow (Dijkstra on the roads) and look for another route after waiting 60
-seconds at a junction.
+seconds at a junction. Cars that have not arrived 5 minutes after they
+started, or four times the time of their route without other cars if that
+is longer, leave the network, so that gridlocks can form and dissolve. The
+statistics count them as not arrived, and the debug output lists them.
 
 The examples are the networks of the Java version: Small, Race, Axhausen and
 Portland (8548 crossings). `tools/net2drawio.py` converts its `.net` files,

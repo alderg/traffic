@@ -32,7 +32,8 @@
  * roads join the junction they are on or other free ends nearby, else they
  * are dead ends. Cars drive from a random junction to another on the
  * fastest route under the current speeds with the turns their lanes allow
- * and look for another route after waiting at a junction.
+ * and look for another route after waiting at a junction. Cars that do not
+ * arrive in their lifetime leave the network.
  *
  * Cars, traffic lights and the density of the lanes are painted into the
  * overlay pane. With debug output, a summary, the links and junctions with
@@ -55,6 +56,7 @@ window.TrafficSimulation = function(ui, listener)
 	var overtakeProbability = 0.8;
 	var keepRightProbability = 0.3;
 	var turnCells = 12;
+	var lifetimeFactor = 4;
 	var maxStepsPerFrame = 100;
 	var maxFrameTime = 40;
 	var maxNewCarsPerStep = 10;
@@ -65,7 +67,7 @@ window.TrafficSimulation = function(ui, listener)
 	var maxImportExtent = 1e6;
 	var carColors = ['#e53935', '#1e88e5', '#43a047', '#8e24aa', '#fdd835', '#fb8c00'];
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
-	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true};
+	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, lifetime: 300};
 
 	var crossingStyle = 'ellipse;aspect=fixed;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -1147,6 +1149,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.index = 0;
 		this.dest = route[route.length - 1].to;
 		this.start = time;
+		this.end = 0;
 		this.link = null;
 		this.ring = null;
 		this.transit = null;
@@ -1753,7 +1756,25 @@ window.TrafficSimulation = function(ui, listener)
 	function createSim()
 	{
 		return {time: 0, active: new Set(), queued: 0, created: 0,
-			arrived: 0, travel: 0, driven: 0, replanned: 0};
+			arrived: 0, expired: 0, travel: 0, driven: 0, replanned: 0};
+	};
+
+	/**
+	 * Returns the seconds that a car on the given route has to arrive after
+	 * it starts: the lifetime in the config, or four times the time of the
+	 * route without other cars if that is longer.
+	 */
+	function getLifetime(route)
+	{
+		var cells = 0;
+
+		for (var i = 0; i < route.length; i++)
+		{
+			cells += route[i].out + 1;
+		}
+
+		return Math.max(config.lifetime, Math.round(lifetimeFactor *
+			(cells / config.vmax + 3 * route.length)));
 	};
 
 	/**
@@ -1782,7 +1803,8 @@ window.TrafficSimulation = function(ui, listener)
 
 	function addActive(v)
 	{
-		record('spawn', v, {link: v.route[0].key, dest: v.dest.id});
+		v.end = sim.time + getLifetime(v.route);
+		record('spawn', v, {link: v.route[0].key, dest: v.dest.id, lifetime: v.end - sim.time});
 		sim.queued--;
 		sim.active.add(v);
 		v.node = document.createElementNS(mxConstants.NS_SVG, 'circle');
@@ -1820,6 +1842,28 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		removeActive(v);
+	};
+
+	/**
+	 * Removes the given car, which has not arrived in its lifetime, from the
+	 * network.
+	 */
+	function expire(v)
+	{
+		record('expire', v, {place: getPlace(v), age: sim.time - v.start, dest: v.dest.id});
+		sim.expired++;
+
+		if (v.transit != null)
+		{
+			var cars = v.transit.link.transit[v.transit.lane];
+			cars.splice(cars.indexOf(v.transit), 1);
+			v.transit = null;
+			removeActive(v);
+		}
+		else
+		{
+			remove(v);
+		}
 	};
 
 	function park(v)
@@ -1860,6 +1904,13 @@ window.TrafficSimulation = function(ui, listener)
 
 		sim.active.forEach(function(v)
 		{
+			if (sim.time >= v.end)
+			{
+				expire(v);
+
+				return;
+			}
+
 			v.stopped = (v.v == 0 && v.transit == null) ? v.stopped + 1 : 0;
 			v.prevLink = v.link;
 			v.prevRing = v.ring;
@@ -2436,7 +2487,8 @@ window.TrafficSimulation = function(ui, listener)
 				', ' + net.cells + ' cells');
 			lines.push('Cars: ' + sim.active.size + ' driving, ' + sim.queued + ' waiting to start');
 			lines.push('Density: ' + (100 * sim.active.size / net.cells).toFixed(1) + ' %');
-			lines.push('Arrived: ' + sim.arrived);
+			lines.push('Arrived: ' + sim.arrived + ((sim.expired > 0) ?
+				' (' + sim.expired + ' not arrived)' : ''));
 
 			if (sim.arrived > 0 && sim.travel > 0)
 			{
@@ -2551,7 +2603,9 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		});
 
-		for (var i = 0; i < net.links.length && links.length < 500; i++)
+		var placed = 0;
+
+		for (var i = 0; i < net.links.length; i++)
 		{
 			var link = net.links[i];
 			var transit = 0;
@@ -2559,9 +2613,18 @@ window.TrafficSimulation = function(ui, listener)
 			for (var k = 0; k < link.transit.length; k++)
 			{
 				transit += link.transit[k].length;
+				placed += link.transit[k].length;
 			}
 
-			if (link.vehicles > 0 || link.queue.length > 0 || transit > 0)
+			for (var k = 0; k < link.cells.length; k++)
+			{
+				for (var j = 0; j < link.cells[k].length; j++)
+				{
+					placed += (link.cells[k][j] != null) ? 1 : 0;
+				}
+			}
+
+			if (links.length < 500 && (link.vehicles > 0 || link.queue.length > 0 || transit > 0))
 			{
 				links.push({link: link.key, from: link.from.id, to: link.to.id, lanes: link.cells.length,
 					cars: link.counts.join('/'), waiting: link.queue.length, crossing: transit,
@@ -2569,11 +2632,19 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		for (var i = 0; i < net.crossings.length && junctions.length < 500; i++)
+		for (var i = 0; i < net.crossings.length; i++)
 		{
 			var junction = net.crossings[i];
 
-			if (junction.rings != null || junction.phases != null)
+			for (var l = 0; junction.rings != null && l < junction.rings.length; l++)
+			{
+				for (var j = 0; j < junction.size; j++)
+				{
+					placed += (junction.rings[l][j] != null) ? 1 : 0;
+				}
+			}
+
+			if (junctions.length < 500 && (junction.rings != null || junction.phases != null))
 			{
 				junctions.push({junction: junction.id, type: (junction.rings != null) ? 'roundabout' : 'traffic light',
 					cars: (junction.rings != null) ? junction.vehicles : '', phase: (junction.phases != null) ?
@@ -2586,12 +2657,17 @@ window.TrafficSimulation = function(ui, listener)
 			return b.stopped - a.stopped;
 		});
 
+		var expired = events.filter(function(e)
+		{
+			return e.event == 'expire';
+		});
+
 		console.groupCollapsed('Traffic ' + formatTime(sim.time) + ': ' + sim.active.size + ' driving (' +
 			moving + ' moving), ' + sim.queued + ' waiting, ' + sim.arrived + ' arrived, ' +
-			events.length + ' events');
+			sim.expired + ' not arrived, ' + events.length + ' events');
 		console.log('Summary', {time: sim.time, driving: sim.active.size, moving: moving,
 			standing: sim.active.size - moving, standing10s: stopped.length, waitingToStart: sim.queued,
-			arrived: sim.arrived, reroutes: sim.replanned, kmh: (moving > 0) ?
+			arrived: sim.arrived, notArrived: sim.expired, reroutes: sim.replanned, kmh: (moving > 0) ?
 			Math.round(3.6 * cellLength * speed / sim.active.size) : 0,
 			steps: debugSteps, msPerStep: (debugSteps > 0) ? Math.round(100 * debugTime / debugSteps) / 100 : 0});
 		console.log('Network', {junctions: net.crossings.length, links: net.links.length, lanes: net.lanes,
@@ -2608,6 +2684,19 @@ window.TrafficSimulation = function(ui, listener)
 		}));
 		console.table(events.slice(0, 1000));
 		console.groupEnd();
+
+		if (expired.length > 0)
+		{
+			console.info('Traffic ' + formatTime(sim.time) + ': ' + formatCount(expired.length, 'car') +
+				' did not arrive in their lifetime and left');
+			console.table(expired.slice(0, 100));
+		}
+
+		if (placed != sim.active.size)
+		{
+			console.warn('Traffic ' + formatTime(sim.time) + ': ' + placed + ' cars on the roads and ' +
+				'junctions, but ' + sim.active.size + ' driving');
+		}
 
 		// No car moved in the last step, and the oldest stands for a while
 		if (running && sim.active.size > 0 && moving == 0 && stopped.length > 0 &&
