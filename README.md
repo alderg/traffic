@@ -66,7 +66,10 @@ there. Crossings let as many cars pass per step as their widest incoming
 road has lanes and take the incoming roads in turns. Cars only pass from
 lanes that allow their turn and drive through crossings on a curve at one
 cell per step (27 km/h) to a lane of the next road that suits their turn
-and the turn after it. Roundabouts are rings of lanes of cells at one cell
+and the turn after it. Crossings of two roads without a traffic light are
+joints in the road: the first car in a lane looks past the end of its road
+into the next and drives through at its speed in all lanes, without the
+turns of the lanes, and cars that start there wait for a gap. Roundabouts are rings of lanes of cells at one cell
 per step; cars enter the outer lane when it is free before the entry, move
 inward for exits far away and back out before their exit, and leave where
 their next road starts. Cars drive from a random junction to another on
