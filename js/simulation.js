@@ -5555,7 +5555,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		// Obstacles near the view
 		var area = new mxRectangle(view.x - view.width / 2, view.y - view.height / 2, 2 * view.width, 2 * view.height);
-		var grid = new LabelGrid(Math.max(view.width, view.height) / 10);
+		// At least 1 unit, as cells of 0 would never end the loops of add
+		var grid = new LabelGrid(Math.max(1, Math.max(view.width, view.height) / 10));
 
 		for (var i = 0; i < roadList.length; i++)
 		{
