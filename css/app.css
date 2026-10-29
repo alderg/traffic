@@ -198,6 +198,44 @@ select, input[type="number"] {
 	margin: 2px 0 0 22px;
 }
 
+/* Shapes of the vehicles and colors of their speed */
+.legend {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px 12px;
+	margin: 0 0 10px;
+	font-size: 12px;
+	color: var(--muted);
+}
+
+.legend .vehicle {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.legend .body {
+	fill: var(--text);
+}
+
+.legend .windows {
+	fill: var(--panel);
+}
+
+.speed-scale {
+	display: flex;
+	flex-basis: 100%;
+	align-items: center;
+	gap: 6px;
+}
+
+.speed-scale .bar {
+	flex: 1 1 auto;
+	height: 8px;
+	border-radius: 4px;
+}
+
 .lane-list {
 	display: flex;
 	flex-direction: column;

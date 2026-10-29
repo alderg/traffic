@@ -74,16 +74,20 @@ removed roads leave, the others keep their routes or look for new ones.
 
 Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
 accelerate, brake to the gap, dawdle, move. Vehicles have their own top
-speed: trucks 2 cells per step below Max. speed (boxes), cars Max. speed
-(circles) and fast cars 1 cell per step above it (arrows with a white
-outline), with the shares of trucks and fast cars in the panel. Faster
-vehicles queue behind slower ones on roads with one lane and pass them
-where there is a free lane. Cars keep their lane. They
-change to the next lane when their lane does not allow their next turn,
-into smaller gaps closer to the end, to the left to pass slower cars, and
-back to the right when there is space, each only if no car is close behind
-there. Crossings let as many cars pass per step as their widest incoming
-road has lanes and take the incoming roads in turns. Cars only pass from
+speed: trucks 2 cells per step below Max. speed, cars Max. speed and fast
+cars 1 cell per step above it, with the shares of trucks and fast cars in
+the panel. Faster vehicles queue behind slower ones on roads with one lane
+and pass them where there is a free lane. Vehicles are painted from above
+as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
+along their lane, turned in their direction through curves, crossings,
+roundabouts and lane changes, and in the color of their speed from blue
+when they stand over violet and magenta to red for the fastest, as in the
+legend of the panel. Cars keep their lane. They change to the next lane
+when their lane does not allow their next turn, into smaller gaps closer
+to the end, to the left to pass slower cars, and back to the right when
+there is space, each only if no car is close behind there. Crossings let
+as many cars pass per step as their widest incoming road has lanes and
+take the incoming roads in turns. Cars only pass from
 lanes that allow their turn and drive through crossings on a curve at one
 cell per step (27 km/h) to a lane of the next road that suits their turn
 and the turn after it. Crossings of two roads without a traffic light are
@@ -150,9 +154,12 @@ then writes its own debug messages and has a Develop menu.
   roads that are dropped on junctions. Other draw.io apps paint roads as
   plain connectors.
 - `js/simulation.js` builds the network from the cells of the current page,
-  runs the model and paints the cars, the density of the lanes and the
-  traffic lights into the overlay pane of the graph. It never changes the
-  diagram, except for imports.
+  runs the model and paints the vehicles, the density of the lanes and the
+  traffic lights into the overlay pane of the graph. Each vehicle is one
+  path with the outline of its type and the windows cut out, at its place
+  and turned in its direction, filled with the color of its speed. The
+  outlines are made once per type and degree, as a new path paints faster
+  than a new transform. It never changes the diagram, except for imports.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
   tag. To update it:
 

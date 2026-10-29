@@ -41,7 +41,10 @@
  *
  * Trucks, cars and fast cars have their own top speed, so that faster ones
  * pass slower ones where there is a free lane and queue behind them where
- * there is none. Vehicles, traffic lights and the density of the lanes are
+ * there is none. Vehicles are painted from above with the shape of their
+ * type along their lane, turned in their direction through curves,
+ * crossings, roundabouts and lane changes, and in the color of their speed
+ * from blue to red. They, traffic lights and the density of the lanes are
  * painted into the overlay pane, and optionally labels with the cars that
  * are on each road and junction in view, on their way there, and that
  * entered and left. Each link and junction counts its cars for the
@@ -86,12 +89,36 @@ window.TrafficSimulation = function(ui, listener)
 	var maxImportCells = 50000;
 	var maxImportSize = 20 * 1024 * 1024;
 	var maxImportExtent = 1e6;
-	var carColors = ['#e53935', '#1e88e5', '#43a047', '#8e24aa', '#fdd835', '#fb8c00'];
-
 	// Top speed of the types of vehicles in cells per step relative to the
 	// maximum speed, with the key of their share in the config
 	var vehicleTypes = [{name: 'car', dv: 0}, {name: 'truck', dv: -2, share: 'trucks'},
 		{name: 'fast', dv: 1, share: 'fast'}];
+
+	// Top views of the types of vehicles in units, driving to the right, with
+	// the windows cut out of the body, which is in the color of the speed.
+	// Trucks are at most a cell long, so that they do not overlap in queues.
+	var vehicleShapes = {
+		car: {length: 5.6, width: 3, body: 'M 2.8 0 C 2.8 -1.2 2.6 -1.5 1.85 -1.5 L -2.3 -1.5 ' +
+			'Q -2.8 -1.5 -2.8 -1 L -2.8 1 Q -2.8 1.5 -2.3 1.5 L 1.85 1.5 C 2.6 1.5 2.8 1.2 2.8 0 Z',
+			windows: 'M 1.45 -1.2 Q 1.75 0 1.45 1.2 L 0.6 1.05 L 0.6 -1.05 Z ' +
+			'M -1.65 -1.1 L -1.65 1.1 L -2.25 1.15 Q -2.42 0 -2.25 -1.15 Z'},
+		truck: {length: 7.4, width: 3.3, body: 'M 3.7 -1.1 Q 3.7 -1.5 3.25 -1.5 L 2 -1.5 L 2 1.5 ' +
+			'L 3.25 1.5 Q 3.7 1.5 3.7 1.1 Z M 1.75 -1.65 L -3.7 -1.65 L -3.7 1.65 L 1.75 1.65 Z',
+			windows: 'M 3.4 -1.2 Q 3.62 0 3.4 1.2 L 2.9 1.12 L 2.9 -1.12 Z'},
+		fast: {length: 6, width: 3, body: 'M 3 0 C 3 -0.75 2.3 -1.4 1.2 -1.4 L -2.6 -1.4 Q -2.85 -1.4 ' +
+			'-2.85 -1.1 L -2.85 1.1 Q -2.85 1.4 -2.6 1.4 L 1.2 1.4 C 2.3 1.4 3 0.75 3 0 Z ' +
+			'M -3 -1.5 L -2.6 -1.5 L -2.6 1.5 L -3 1.5 Z',
+			windows: 'M 1.05 -1 Q 1.35 0 1.05 1 L 0.1 0.92 L 0.1 -0.92 Z ' +
+			'M -1.25 -0.85 L -1.25 0.85 L -1.8 0.92 L -1.8 -0.92 Z'}};
+
+	// Colors of the speed from standing to the fastest vehicles, from blue over
+	// violet and magenta to red, which stand out from the green of free lanes
+	var speedStops = ['#2d5ed4', '#7b46e9', '#bb2ad0', '#e71994', '#f62f53', '#f64734'];
+	var minVehiclePx = 9;
+	var maxWindowsScale = 1.5;
+	var vehicleStroke = 0.35;
+	var turnChord = 2.5;
+	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1};
@@ -1134,13 +1161,14 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns a quadratic curve from p0 in direction a to p1 in direction b
-	 * through the intersection of the directions or a line if they do not
-	 * intersect in front of both points.
+	 * Returns a cubic curve from p0 in direction a to p1 in direction b, the
+	 * quadratic curve through the intersection of the directions if they
+	 * intersect in front of both points, else one that leaves and reaches
+	 * the points in their directions, with the length of a line between
+	 * them for the steps through the crossing.
 	 */
 	function createCurveBetween(p0, a, p1, b)
 	{
-		var c = new mxPoint((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
 		var dx = p1.x - p0.x;
 		var dy = p1.y - p0.y;
 		var det = a.x * b.y - a.y * b.x;
@@ -1153,12 +1181,16 @@ window.TrafficSimulation = function(ui, listener)
 
 			if (s > 0 && t > 0 && s + t < 3 * dist)
 			{
-				c = new mxPoint(p0.x + a.x * s, p0.y + a.y * s);
+				var c = new mxPoint(p0.x + a.x * s, p0.y + a.y * s);
+
+				return {p0: p0, c0: new mxPoint(p0.x + 2 * (c.x - p0.x) / 3, p0.y + 2 * (c.y - p0.y) / 3),
+					c1: new mxPoint(p1.x + 2 * (c.x - p1.x) / 3, p1.y + 2 * (c.y - p1.y) / 3), p1: p1,
+					length: (roads.getDistance(p0, c) + roads.getDistance(c, p1) + dist) / 2};
 			}
 		}
 
-		return {p0: p0, c: c, p1: p1, length: (roads.getDistance(p0, c) +
-			roads.getDistance(c, p1) + dist) / 2};
+		return {p0: p0, c0: new mxPoint(p0.x + a.x * dist / 3, p0.y + a.y * dist / 3),
+			c1: new mxPoint(p1.x - b.x * dist / 3, p1.y - b.y * dist / 3), p1: p1, length: dist};
 	};
 
 	/**
@@ -1184,12 +1216,13 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function getCurvePoint(curve, s)
 	{
-		var a = (1 - s) * (1 - s);
-		var b = 2 * (1 - s) * s;
-		var c = s * s;
+		var a = (1 - s) * (1 - s) * (1 - s);
+		var b = 3 * (1 - s) * (1 - s) * s;
+		var c = 3 * (1 - s) * s * s;
+		var d = s * s * s;
 
-		return new mxPoint(a * curve.p0.x + b * curve.c.x + c * curve.p1.x,
-			a * curve.p0.y + b * curve.c.y + c * curve.p1.y);
+		return new mxPoint(a * curve.p0.x + b * curve.c0.x + c * curve.c1.x + d * curve.p1.x,
+			a * curve.p0.y + b * curve.c0.y + c * curve.c1.y + d * curve.p1.y);
 	};
 
 	/**
@@ -1482,21 +1515,64 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Returns the points of the way of the given car in this step around the
 	 * ring from its previous cell to its exit and on a curve to the first
-	 * cell of the given lane of the given next link.
+	 * cell of the given lane of the given next link. The curve leaves the
+	 * ring between the previous cell and the exit where it turns into the
+	 * lane best, as lanes on the right of the road start before the exit.
 	 */
 	Roundabout.prototype.getExitPath = function(v, next, lane)
 	{
 		var n = this.size;
 		var d = (v.prevRing == this) ? (v.cell - v.prevCell + n) % n : 0;
-		var pts = [];
+		var p1 = next.getPoint(lane, 0);
+		var b = getDirection(next.paths[lane].points, true);
+		var exit = d;
+		var best = null;
 
-		for (var i = 0; i < d; i++)
+		for (var e = d; e >= 0; e -= 0.25)
 		{
-			pts.push(this.getPoint(0, v.prevCell + i, (i == 0) ? this.radii[v.prevRingLane] : null));
+			var score = this.getExitScore(v.cell - d + e, p1, b);
+
+			if (best == null || score < best)
+			{
+				best = score;
+				exit = e;
+			}
 		}
 
-		return addCurvePoints(pts, createCurveBetween(this.getPoint(0, v.cell), this.getTangent(v.cell),
-			next.getPoint(lane, 0), getDirection(next.paths[lane].points, true)));
+		var pts = (v.prevRing == this) ? [this.getPoint(0, v.prevCell, this.radii[v.prevRingLane])] : [];
+
+		for (var i = 1; i < exit; i++)
+		{
+			pts.push(this.getPoint(0, v.cell - d + i));
+		}
+
+		return addCurvePoints(pts, createCurveBetween(this.getPoint(0, v.cell - d + exit),
+			this.getTangent(v.cell - d + exit), p1, b));
+	};
+
+	/**
+	 * Returns how far a curve from the given cell of the outer lane to the
+	 * given point in the given direction is from a turn where both meet at
+	 * the same distance in front of them, plus 1000 if they do not meet in
+	 * front of both.
+	 */
+	Roundabout.prototype.getExitScore = function(cell, p1, b)
+	{
+		var p0 = this.getPoint(0, cell);
+		var a = this.getTangent(cell);
+		var dx = p1.x - p0.x;
+		var dy = p1.y - p0.y;
+		var det = a.x * b.y - a.y * b.x;
+
+		if (Math.abs(det) < 0.1)
+		{
+			return 1000 + Math.sqrt(dx * dx + dy * dy);
+		}
+
+		var s = (dx * b.y - dy * b.x) / det;
+		var t = (a.x * dy - a.y * dx) / det;
+
+		return (s > 0 && t > 0) ? Math.abs(s - t) : 1000 + Math.max(0, -s) + Math.max(0, -t);
 	};
 
 	/**
@@ -1536,7 +1612,8 @@ window.TrafficSimulation = function(ui, listener)
 		this.prevRingLane = 0;
 		this.prevCell = 0;
 		this.prevProgress = 0;
-		this.color = carColors[id % carColors.length];
+		this.d = null;
+		this.fill = null;
 		this.node = null;
 		this.x = null;
 		this.y = null;
@@ -2231,26 +2308,10 @@ window.TrafficSimulation = function(ui, listener)
 		sim.queued--;
 		sim.active.add(v);
 
-		// Cars are circles, trucks long boxes and fast cars arrows with a
-		// white outline, turned in the direction of travel
-		if (v.type.name == 'truck')
-		{
-			v.node = createNode('rect', null, {x: -4.75, y: -2.5, width: 9.5, height: 5, rx: 1});
-		}
-		else if (v.type.name == 'fast')
-		{
-			v.node = createNode('path', null, {d: 'M 4 0 L -3.4 2.8 L -2 0 L -3.4 -2.8 Z',
-				'stroke-linejoin': 'round'});
-		}
-		else
-		{
-			v.node = createNode('circle', null, {r: getSize(0.4, 2.5)});
-		}
-
-		v.node.setAttribute('fill', v.color);
-		v.node.setAttribute('stroke', (v.type.name == 'fast') ? '#ffffff' : 'rgba(0,0,0,0.5)');
-		v.node.setAttribute('stroke-width', (v.type.name == 'fast') ? '0.8' : '0.5');
-		overlay.cars.appendChild(v.node);
+		// One path with the outline of its type, painted in paintCars
+		v.node = createNode('path', overlay.cars, {});
+		v.d = null;
+		v.fill = null;
 	};
 
 	function removeActive(v)
@@ -2653,8 +2714,10 @@ window.TrafficSimulation = function(ui, listener)
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
 		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
-			route: createNode('g', root, {}), bars: createNode('g', root, {}), cars: createNode('g', root, {}),
+			route: createNode('g', root, {}), bars: createNode('g', root, {}),
+			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
 			heads: createNode('g', root, {}), labels: createNode('g', root, {}), focus: createNode('g', root, {})};
+		outlines = {scale: 0};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
 	};
@@ -2705,18 +2768,9 @@ window.TrafficSimulation = function(ui, listener)
 
 	function updateSizes()
 	{
-		var r = getSize(0.4, 2.5);
 		var w = getSize(0.3, 2);
 		var bw = getSize(0.3, 3);
 		var hs = getHeadScale();
-
-		sim.active.forEach(function(v)
-		{
-			if (v.type.name == 'car')
-			{
-				v.node.setAttribute('r', r);
-			}
-		});
 
 		for (var i = 0; i < net.links.length; i++)
 		{
@@ -2878,113 +2932,430 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Paints the cars between their previous and current position.
+	 * Returns the index of the segment of the given lengths of points that
+	 * contains the given distance, from 1 to the last point.
 	 */
-	function paintCars(alpha)
+	function getSegment(lengths, d)
 	{
-		// Shapes of other vehicles than cars are 3 units wide like cars
-		var scale = getSize(0.4, 2.5) / 3;
+		var lo = 1;
+		var hi = lengths.length - 1;
 
-		sim.active.forEach(function(v)
+		while (lo < hi)
 		{
-			var pt = v.getPoint(false);
-			var curve = (v.transit != null) ? v.transit.curve : v.curve;
+			var mid = (lo + hi) >> 1;
 
-			// Into and out of roundabouts
-			if (alpha < 1 && v.path != null)
+			if (lengths[mid] < d)
 			{
-				pt = getPathPoint(v.path.concat([pt]), alpha);
-			}
-			// Along the end of the last link, the curve through the crossing
-			// and the start of the next link
-			else if (alpha < 1 && curve != null && curve.length > 0 &&
-				(v.prevTransit == null || v.prevTransit.curve == curve))
-			{
-				var link = (v.prevTransit == null) ? v.prevLink : null;
-				var size = (link != null) ? link.length / (link.out + 1) : 0;
-				var d0 = (link != null) ? (link.out - v.prevCell) * size : 0;
-				var s0 = (v.prevTransit != null) ? v.prevProgress : 0;
-				var d1 = d0 + (((v.transit != null) ? getProgress(v.transit) : 1) - s0) * curve.length;
-				var size1 = (v.transit == null) ? v.link.length / (v.link.out + 1) : 0;
-				var d = alpha * (d1 + ((v.transit == null) ? v.cell * size1 : 0));
-
-				pt = (d < d0) ? link.getPoint(v.prevLane, v.prevCell + d / size) : ((d <= d1) ?
-					getCurvePoint(curve, s0 + (d - d0) / curve.length) : v.link.getPoint(v.lane, (d - d1) / size1));
-			}
-			else if (alpha < 1 && (v.prevLink != null || v.prevRing != null || v.prevTransit != null))
-			{
-				if (v.prevRing != null && v.prevRing == v.ring)
-				{
-					var n = v.ring.size;
-					var r = v.ring.radii[v.prevRingLane];
-					pt = v.ring.getPoint(0, v.prevCell + ((v.cell - v.prevCell + n) % n) * alpha,
-						r + (v.ring.radii[v.ringLane] - r) * alpha);
-				}
-				else if (v.prevLink != null && v.prevLink == v.link)
-				{
-					var cell = v.prevCell + (v.cell - v.prevCell) * alpha;
-					var p0 = v.link.getPoint(v.prevLane, cell);
-					var p1 = v.link.getPoint(v.lane, cell);
-					pt = new mxPoint(p0.x + (p1.x - p0.x) * alpha, p0.y + (p1.y - p0.y) * alpha);
-				}
-				else
-				{
-					var p0 = v.getPoint(true);
-					pt = new mxPoint(p0.x + (pt.x - p0.x) * alpha, p0.y + (pt.y - p0.y) * alpha);
-				}
-			}
-
-			if (v.type.name == 'car')
-			{
-				v.node.setAttribute('cx', pt.x);
-				v.node.setAttribute('cy', pt.y);
+				lo = mid + 1;
 			}
 			else
 			{
-				// Keeps the direction while standing
-				var dx = (v.x != null) ? pt.x - v.x : 0;
-				var dy = (v.y != null) ? pt.y - v.y : 0;
-
-				if (dx * dx + dy * dy > 0.01)
-				{
-					v.angle = Math.atan2(dy, dx) * 180 / Math.PI;
-				}
-				else if (v.x == null)
-				{
-					v.angle = getHeading(v);
-				}
-
-				v.node.setAttribute('transform', 'translate(' + pt.x + ',' + pt.y + ') rotate(' +
-					v.angle + ') scale(' + scale + ')');
+				hi = mid;
 			}
+		}
 
-			v.x = pt.x;
-			v.y = pt.y;
-		});
-
-		paintFocus();
+		return lo;
 	};
 
 	/**
-	 * Returns the direction of the lane or ring lane of the given car in
-	 * degrees.
+	 * Sets x and y of the given pose to the point at the given distance along
+	 * the given points with their lengths, clamped to their ends.
 	 */
-	function getHeading(v)
+	function setPathPoint(pose, pts, lengths, d)
 	{
-		var d = new mxPoint(1, 0);
+		var i = getSegment(lengths, d);
+		var len = lengths[i] - lengths[i - 1];
+		var f = (len > 0) ? Math.max(0, Math.min(1, (d - lengths[i - 1]) / len)) : 0;
+		pose.x = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f;
+		pose.y = pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f;
+	};
 
-		if (v.ring != null)
+	var chordPose = {x: 0, y: 0, a: 0};
+
+	/**
+	 * Sets the given pose to the point at the given distance along the given
+	 * points with their lengths and the angle of the chord around it, so
+	 * that vehicles turn smoothly through curves and at corners.
+	 */
+	function setPathPose(pose, pts, lengths, d)
+	{
+		var total = lengths[lengths.length - 1];
+		setPathPoint(chordPose, pts, lengths, Math.min(total, d + turnChord));
+		var x = chordPose.x;
+		var y = chordPose.y;
+		setPathPoint(chordPose, pts, lengths, Math.max(0, d - turnChord));
+
+		if (x != chordPose.x || y != chordPose.y)
 		{
-			d = v.ring.getTangent(v.cell);
-		}
-		else if (v.link != null)
-		{
-			var p0 = v.link.getPoint(v.lane, Math.max(0, v.cell - 0.5));
-			var p1 = v.link.getPoint(v.lane, Math.min(v.link.out, v.cell + 0.5));
-			d = new mxPoint(p1.x - p0.x, p1.y - p0.y);
+			pose.a = Math.atan2(y - chordPose.y, x - chordPose.x) * 180 / Math.PI;
 		}
 
-		return Math.atan2(d.y, d.x) * 180 / Math.PI;
+		setPathPoint(pose, pts, lengths, d);
+	};
+
+	/**
+	 * Sets the given pose to the given cell, which may be fractional, of the
+	 * given lane of the given link.
+	 */
+	function setLanePose(pose, link, lane, cell)
+	{
+		var path = link.paths[lane];
+		setPathPose(pose, path.points, path.lengths, (cell + 0.5) / (link.out + 1) *
+			path.lengths[path.lengths.length - 1]);
+	};
+
+	/**
+	 * Sets the given pose to the given fraction of the given curve through a
+	 * crossing, with the angle of its tangent.
+	 */
+	function setCurvePose(pose, curve, s)
+	{
+		var pt = getCurvePoint(curve, s);
+		var a = (1 - s) * (1 - s);
+		var b = 2 * (1 - s) * s;
+		var c = s * s;
+		var dx = a * (curve.c0.x - curve.p0.x) + b * (curve.c1.x - curve.c0.x) + c * (curve.p1.x - curve.c1.x);
+		var dy = a * (curve.c0.y - curve.p0.y) + b * (curve.c1.y - curve.c0.y) + c * (curve.p1.y - curve.c1.y);
+
+		if (dx == 0 && dy == 0)
+		{
+			dx = curve.p1.x - curve.p0.x;
+			dy = curve.p1.y - curve.p0.y;
+		}
+
+		pose.x = pt.x;
+		pose.y = pt.y;
+		pose.a = Math.atan2(dy, dx) * 180 / Math.PI;
+	};
+
+	/**
+	 * Sets the given pose to the given cell, which may be fractional, of the
+	 * given roundabout at the given radius, with the direction of traffic.
+	 */
+	function setRingPose(pose, ring, cell, radius)
+	{
+		var pt = ring.getPoint(0, cell, radius);
+		var t = ring.getTangent(cell);
+		pose.x = pt.x;
+		pose.y = pt.y;
+		pose.a = Math.atan2(t.y, t.x) * 180 / Math.PI;
+	};
+
+	/**
+	 * Sets the given pose to the place of the given car before or after the
+	 * last step.
+	 */
+	function setPose(pose, v, prev)
+	{
+		var transit = (prev) ? v.prevTransit : v.transit;
+		var ring = (prev) ? v.prevRing : v.ring;
+		var cell = (prev) ? v.prevCell : v.cell;
+
+		if (transit != null)
+		{
+			setCurvePose(pose, transit.curve, (prev) ? v.prevProgress : getProgress(transit));
+		}
+		else if (ring != null)
+		{
+			setRingPose(pose, ring, cell, ring.radii[(prev) ? v.prevRingLane : v.ringLane]);
+		}
+		else
+		{
+			setLanePose(pose, (prev) ? v.prevLink : v.link, (prev) ? v.prevLane : v.lane, cell);
+		}
+	};
+
+	var pose = {x: 0, y: 0, a: 0};
+	var lanePose = {x: 0, y: 0, a: 0};
+
+	/**
+	 * Sets the given pose to the place of the given car at the given fraction
+	 * of the last step: along its path into and out of roundabouts, along the
+	 * end of its last link, the curve through the crossing and the start of
+	 * the next link, around roundabouts, along its lane and across to the
+	 * next in lane changes, where it turns toward the lane and back.
+	 */
+	function setStepPose(pose, v, alpha)
+	{
+		var curve = (v.transit != null) ? v.transit.curve : v.curve;
+		pose.a = v.angle;
+
+		if (alpha >= 1 || (v.prevLink == null && v.prevRing == null && v.prevTransit == null))
+		{
+			setPose(pose, v);
+		}
+		else if (v.path != null)
+		{
+			setPose(lanePose, v);
+			var pts = v.path.concat([new mxPoint(lanePose.x, lanePose.y)]);
+			var lengths = roads.getLengths(pts);
+			setPathPose(pose, pts, lengths, alpha * lengths[lengths.length - 1]);
+
+			// Turns from the direction at the start into the one at the end,
+			// which short paths into and out of roundabouts reach only near
+			// their ends
+			var turn = ((lanePose.a - pose.a) % 360 + 540) % 360 - 180;
+			pose.a += turn * alpha * alpha;
+			setPose(lanePose, v, true);
+			turn = ((lanePose.a - pose.a) % 360 + 540) % 360 - 180;
+			pose.a += turn * (1 - alpha) * (1 - alpha);
+		}
+		else if (curve != null && curve.length > 0 && (v.prevTransit == null || v.prevTransit.curve == curve))
+		{
+			var link = (v.prevTransit == null) ? v.prevLink : null;
+			var size = (link != null) ? link.length / (link.out + 1) : 0;
+			var d0 = (link != null) ? (link.out - v.prevCell) * size : 0;
+			var s0 = (v.prevTransit != null) ? v.prevProgress : 0;
+			var d1 = d0 + (((v.transit != null) ? getProgress(v.transit) : 1) - s0) * curve.length;
+			var size1 = (v.transit == null) ? v.link.length / (v.link.out + 1) : 0;
+			var d = alpha * (d1 + ((v.transit == null) ? v.cell * size1 : 0));
+
+			if (d < d0)
+			{
+				setLanePose(pose, link, v.prevLane, v.prevCell + d / size);
+			}
+			else if (d <= d1)
+			{
+				setCurvePose(pose, curve, s0 + (d - d0) / curve.length);
+			}
+			else
+			{
+				setLanePose(pose, v.link, v.lane, (d - d1) / size1);
+			}
+		}
+		else if (v.prevRing != null && v.prevRing == v.ring)
+		{
+			var n = v.ring.size;
+			var r = v.ring.radii[v.prevRingLane];
+			var dr = v.ring.radii[v.ringLane] - r;
+			var cells = (v.cell - v.prevCell + n) % n;
+			setRingPose(pose, v.ring, v.prevCell + cells * alpha, r + dr * alpha);
+
+			// Turns outward, which is to the right, or inward and back in lane changes
+			if (dr != 0)
+			{
+				var ahead = cells * 2 * Math.PI * (r + dr / 2) / n;
+				var yaw = Math.min(laneChangeYaw, Math.atan2(Math.abs(dr), ahead) * 180 / Math.PI);
+				pose.a += ((dr > 0) ? 1 : -1) * yaw * Math.sin(Math.PI * alpha);
+			}
+		}
+		else if (v.prevLink != null && v.prevLink == v.link)
+		{
+			var cell = v.prevCell + (v.cell - v.prevCell) * alpha;
+			setLanePose(lanePose, v.link, v.prevLane, cell);
+			setLanePose(pose, v.link, v.lane, cell);
+
+			if (v.prevLane != v.lane)
+			{
+				// Turns toward the next lane and back
+				var dx = pose.x - lanePose.x;
+				var dy = pose.y - lanePose.y;
+				var a = pose.a * Math.PI / 180;
+				var side = (Math.cos(a) * dy - Math.sin(a) * dx > 0) ? 1 : -1;
+				var ahead = (v.cell - v.prevCell) * v.link.length / (v.link.out + 1);
+				var yaw = Math.min(laneChangeYaw, Math.atan2(Math.sqrt(dx * dx + dy * dy), ahead) * 180 / Math.PI);
+				pose.a += side * yaw * Math.sin(Math.PI * alpha);
+				pose.x = lanePose.x + dx * alpha;
+				pose.y = lanePose.y + dy * alpha;
+			}
+		}
+		else
+		{
+			setPose(lanePose, v);
+			var p0 = v.getPoint(true);
+			var dx = lanePose.x - p0.x;
+			var dy = lanePose.y - p0.y;
+			pose.x = p0.x + dx * alpha;
+			pose.y = p0.y + dy * alpha;
+			pose.a = (dx != 0 || dy != 0) ? Math.atan2(dy, dx) * 180 / Math.PI : lanePose.a;
+		}
+	};
+
+	/**
+	 * Returns the scale of the shapes of the vehicles, so that cars are at
+	 * least minVehiclePx long.
+	 */
+	function getVehicleScale()
+	{
+		return Math.max(1, minVehiclePx / vehicleShapes.car.length / graph.view.scale);
+	};
+
+	/**
+	 * Returns the speed of the given car in cells per step, one through
+	 * crossings other than joints.
+	 */
+	function getSpeed(v)
+	{
+		return (v.transit != null && !v.transit.link.from.joint) ? 1 : v.v;
+	};
+
+	/**
+	 * Returns the colors of the speeds from 0 to the top speed of all types
+	 * of vehicles in cells per step, from blue to red.
+	 */
+	function getSpeedColors()
+	{
+		var top = config.vmax + ((config.fast > 0) ? 1 : 0);
+
+		if (speedColors == null || speedColors.length != top + 1)
+		{
+			speedColors = [];
+
+			for (var i = 0; i <= top; i++)
+			{
+				speedColors.push(getScaleColor(i / top));
+			}
+		}
+
+		return speedColors;
+	};
+
+	var speedColors = null;
+
+	/**
+	 * Returns the color at the given fraction of speedStops.
+	 */
+	function getScaleColor(f)
+	{
+		var x = Math.max(0, Math.min(1, f)) * (speedStops.length - 1);
+		var i = Math.min(speedStops.length - 2, Math.floor(x));
+		var a = parseInt(speedStops[i].substring(1), 16);
+		var b = parseInt(speedStops[i + 1].substring(1), 16);
+		var t = x - i;
+		var rgb = [];
+
+		for (var shift = 16; shift >= 0; shift -= 8)
+		{
+			rgb.push(Math.round(((a >> shift) & 255) * (1 - t) + ((b >> shift) & 255) * t));
+		}
+
+		return 'rgb(' + rgb.join(',') + ')';
+	};
+
+	var outlines = {scale: 0};
+
+	/**
+	 * Returns the outline of the given type of vehicle turned by the given
+	 * whole degrees in the current scale of the vehicles, without the first
+	 * point, so that the path of a vehicle is its place and this outline.
+	 * Changing the path paints faster than changing a transform.
+	 */
+	function getOutline(type, deg)
+	{
+		var turns = outlines[type.name] || (outlines[type.name] = []);
+		var result = turns[deg];
+
+		if (result == null)
+		{
+			var shape = vehicleShapes[type.name];
+
+			// Leaves out the windows when the vehicles are painted larger
+			// than they are, which paints faster and is clearer
+			result = turnPath((outlines.scale > maxWindowsScale) ? shape.body :
+				shape.body + ' ' + shape.windows, deg * Math.PI / 180, outlines.scale);
+			turns[deg] = result;
+		}
+
+		return result;
+	};
+
+	/**
+	 * Returns the given path of absolute M, L, Q, C and Z commands turned by
+	 * the given radians around 0, 0 and scaled by the given factor with
+	 * relative commands, which start at 0, 0.
+	 */
+	function turnPath(path, a, k)
+	{
+		var tokens = path.split(' ');
+		var cos = Math.cos(a) * k;
+		var sin = Math.sin(a) * k;
+		var x = 0;
+		var y = 0;
+		var start = null;
+		var result = '';
+
+		for (var i = 0; i < tokens.length;)
+		{
+			var cmd = tokens[i++];
+
+			if (cmd == 'Z')
+			{
+				result += 'z';
+				x = start.x;
+				y = start.y;
+			}
+			else
+			{
+				var n = (cmd == 'C') ? 3 : ((cmd == 'Q') ? 2 : 1);
+				result += cmd.toLowerCase();
+
+				for (var j = 0; j < n; j++)
+				{
+					var px = parseFloat(tokens[i++]);
+					var py = parseFloat(tokens[i++]);
+					var tx = px * cos - py * sin;
+					var ty = px * sin + py * cos;
+					result += ((j > 0) ? ' ' : '') + Math.round((tx - x) * 1000) / 1000 + ' ' +
+						Math.round((ty - y) * 1000) / 1000;
+
+					if (j == n - 1)
+					{
+						x = tx;
+						y = ty;
+					}
+				}
+
+				if (cmd == 'M')
+				{
+					start = {x: x, y: y};
+				}
+			}
+		}
+
+		return result;
+	};
+
+	/**
+	 * Paints the cars between their previous and current position, turned
+	 * in their direction and in the color of their speed.
+	 */
+	function paintCars(alpha)
+	{
+		var k = getVehicleScale();
+		var colors = getSpeedColors();
+		var top = colors.length - 1;
+
+		if (k != outlines.scale)
+		{
+			outlines = {scale: k};
+			overlay.cars.setAttribute('stroke-width', vehicleStroke * k);
+		}
+
+		sim.active.forEach(function(v)
+		{
+			setStepPose(pose, v, alpha);
+			v.angle = pose.a;
+			v.x = pose.x;
+			v.y = pose.y;
+			var d = 'M ' + Math.round(pose.x * 100) / 100 + ' ' + Math.round(pose.y * 100) / 100 +
+				' ' + getOutline(v.type, ((Math.round(pose.a) % 360) + 360) % 360);
+			var fill = colors[Math.min(top, getSpeed(v))];
+
+			// Leaves standing vehicles as they are
+			if (d != v.d)
+			{
+				v.d = d;
+				v.node.setAttribute('d', d);
+			}
+
+			if (fill != v.fill)
+			{
+				v.fill = fill;
+				v.node.setAttribute('fill', fill);
+			}
+		});
+
+		paintFocus();
 	};
 
 	/**
@@ -3586,7 +3957,8 @@ window.TrafficSimulation = function(ui, listener)
 			schedule();
 		}
 
-		paintCars((running && config.speed <= 20) ? Math.min(1, (now - lastStep) / interval) : 1);
+		// Frames may start before the last step, for example after a start
+		paintCars((running && config.speed <= 20) ? Math.max(0, Math.min(1, (now - lastStep) / interval)) : 1);
 
 		if (config.labels && (labelsDirty || now - lastLabels >= labelInterval))
 		{
@@ -4077,7 +4449,11 @@ window.TrafficSimulation = function(ui, listener)
 		}, 'simulation traced outlines');
 	}
 
-	var transform = roads.guard(updateTransform, 'simulation transform');
+	var transform = roads.guard(function()
+	{
+		updateTransform();
+		schedule();
+	}, 'simulation transform');
 	graph.view.addListener(mxEvent.SCALE, transform);
 	graph.view.addListener(mxEvent.TRANSLATE, transform);
 	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, transform);
@@ -4112,7 +4488,7 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function findVehicle(pt)
 	{
-		var best = Math.pow(getSize(0.6, 8), 2);
+		var best = Math.pow(Math.max(vehicleShapes.truck.length / 2 * getVehicleScale(), 8 / graph.view.scale), 2);
 		var result = null;
 
 		if (sim != null && overlay != null)
@@ -4179,6 +4555,9 @@ window.TrafficSimulation = function(ui, listener)
 			focus.trail.style.stroke = stroke;
 			focus.ahead.style.stroke = stroke;
 			focus.markers = [createMarker('A', '#188038'), createMarker('B', '#d93025')];
+			// The ring has a halo, so that it stands out from the speed colors
+			focus.halo = createNode('circle', overlay.focus, {fill: 'none', 'stroke-opacity': 0.85});
+			focus.halo.style.stroke = 'light-dark(#ffffff,#000000)';
 			focus.ring = createNode('circle', overlay.focus, {fill: 'none'});
 			focus.ring.style.stroke = stroke;
 			focus.line = createNode('line', overlay.focus, {});
@@ -4330,19 +4709,24 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		focus.ring.style.display = (gone) ? 'none' : '';
+		focus.halo.style.display = focus.ring.style.display;
 		focus.line.style.display = focus.ring.style.display;
 		focus.label.style.display = focus.ring.style.display;
 
 		if (!gone && v.x != null)
 		{
-			var r = getSize(0.7, 8);
-			var lx = v.x + 14 / s;
-			var ly = v.y - 14 / s;
+			var r = vehicleShapes[v.type.name].length / 2 * getVehicleScale() + 4 / s;
+			var lx = v.x + r * 0.7071 + 10 / s;
+			var ly = v.y - r * 0.7071 - 10 / s;
 			var text = getTypeName(v) + ' · ' + Math.round(getKmh(v)) + ' km/h';
+			focus.halo.setAttribute('cx', v.x);
+			focus.halo.setAttribute('cy', v.y);
+			focus.halo.setAttribute('r', r);
+			focus.halo.setAttribute('stroke-width', 5 / s);
 			focus.ring.setAttribute('cx', v.x);
 			focus.ring.setAttribute('cy', v.y);
 			focus.ring.setAttribute('r', r);
-			focus.ring.setAttribute('stroke-width', 2 / s);
+			focus.ring.setAttribute('stroke-width', 2.5 / s);
 			focus.line.setAttribute('x1', v.x + r * 0.7071);
 			focus.line.setAttribute('y1', v.y - r * 0.7071);
 			focus.line.setAttribute('x2', lx);
@@ -4367,12 +4751,11 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the speed of the given car in km/h, one cell per step through
-	 * crossings other than joints.
+	 * Returns the speed of the given car in km/h.
 	 */
 	function getKmh(v)
 	{
-		return 3.6 * cellLength * ((v.transit != null && !v.transit.link.from.joint) ? 1 : v.v);
+		return 3.6 * cellLength * getSpeed(v);
 	};
 
 	/**
@@ -4668,5 +5051,6 @@ window.TrafficSimulation = function(ui, listener)
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
+		vehicleShapes: vehicleShapes, speedStops: speedStops,
 		selectVehicle: selectVehicle, setDebug: setDebug};
 };

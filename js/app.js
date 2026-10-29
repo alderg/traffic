@@ -768,12 +768,58 @@
 			trucks: [[0, 0.1, 0.2, 0.3, 0.5], ['0 %', '10 %', '20 %', '30 %', '50 %']],
 			fast: [[0, 0.05, 0.1, 0.2, 0.3], ['0 %', '5 %', '10 %', '20 %', '30 %']]};
 		var types = document.getElementById('types');
+		var typeNames = [['truck', 'Trucks', -2], ['car', 'Cars', 0], ['fast', 'Fast cars', 1]];
+		var typeSpeeds = [];
+		var topSpeed = document.createElement('span');
+
+		// Shapes of the vehicles as in the editor with their top speed and
+		// the colors of the speeds
+		typeNames.forEach(function(type)
+		{
+			var shape = sim.vehicleShapes[type[0]];
+			var row = document.createElement('span');
+			row.className = 'vehicle';
+			var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+			svg.setAttribute('viewBox', (-shape.length / 2 - 0.2) + ' -1.8 ' + (shape.length + 0.4) + ' 3.6');
+			svg.setAttribute('width', Math.round(12 * (shape.length + 0.4) / 3.6));
+			svg.setAttribute('height', 12);
+			svg.setAttribute('aria-hidden', 'true');
+
+			['body', 'windows'].forEach(function(part)
+			{
+				var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+				path.setAttribute('d', shape[part]);
+				path.setAttribute('class', part);
+				svg.appendChild(path);
+			});
+
+			row.appendChild(svg);
+			var label = document.createElement('span');
+			row.appendChild(label);
+			typeSpeeds.push(label);
+			types.appendChild(row);
+		});
+
+		var scale = document.createElement('span');
+		scale.className = 'speed-scale';
+		scale.appendChild(document.createTextNode('Speed 0'));
+		var bar = document.createElement('span');
+		bar.className = 'bar';
+		bar.style.background = 'linear-gradient(to right, ' + sim.speedStops.join(', ') + ')';
+		scale.appendChild(bar);
+		scale.appendChild(topSpeed);
+		types.appendChild(scale);
 
 		// Trucks drive two cells per step slower, fast cars one faster
 		function updateTypes()
 		{
-			types.textContent = '\u25ac Trucks ' + Math.max(1, config.vmax - 2) * 27 + ' km/h, \u25cf cars ' +
-				config.vmax * 27 + ' km/h, \u25b6 fast cars ' + (config.vmax + 1) * 27 + ' km/h';
+			for (var i = 0; i < typeNames.length; i++)
+			{
+				typeSpeeds[i].textContent = typeNames[i][1] + ' ' +
+					Math.max(1, config.vmax + typeNames[i][2]) * 27 + ' km/h';
+			}
+
+			topSpeed.textContent = (config.vmax + ((config.fast > 0) ? 1 : 0)) * 27 + ' km/h';
 		};
 
 		Object.keys(selects).forEach(function(key)
