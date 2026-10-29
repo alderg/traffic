@@ -10,15 +10,23 @@ are driving.
 
 ## Drawing Roads
 
-- Shapes are crossings, connectors between them are roads. The Shapes
-  panel has a crossing, a two-way road, a one-way road and a crossing with
-  a traffic light. Select two crossings and click a road to connect them,
-  or drag from the arrows of a crossing, which draws a two-way road.
-- A connector with one arrow is a one-way road in the direction of the
-  arrow. One with no or two arrows is a road in both directions, with a lane
-  on the right of each direction.
-- Add `trafficLight=10` to the style of a shape (Edit Style) for a traffic
-  light that gives green to one approach axis at a time for 10 seconds.
+- Shapes are junctions, connectors between them are roads. The Shapes
+  panel has crossings, traffic lights and roundabouts, and two-way and
+  one-way roads with 1 to 3 lanes. Drop the ends of a road on junctions,
+  select two junctions and click a road, or drag from the arrows of a
+  junction, which draws a two-way road.
+- A road with one arrow is a one-way road in the direction of the arrow.
+  One with no or two arrows is a road in both directions, with its lanes on
+  the right of each direction. `lanes=2` in the style of a road (Edit
+  Style) sets the lanes per direction, up to 4.
+- `trafficLight=10` in the style of a junction makes it a traffic light
+  that gives green to one approach axis at a time for 10 seconds, followed
+  by 3 seconds of yellow. The lights show their state while the simulation
+  runs.
+- A roundabout (`shape=roundabout`) is a ring road where traffic circulates
+  counterclockwise. Cars give way to the ring when they enter.
+- Free ends of roads join the junction they are on or other free ends
+  nearby, else cars can start and end there.
 - 1 unit is 1 meter and 1 step is 1 second. Curved connectors and
   waypoints are followed.
 
@@ -28,10 +36,15 @@ removed roads leave, the others keep their routes or look for new ones.
 ## Model
 
 Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
-accelerate, brake to the gap, dawdle, move. Crossings let one car per step
-pass and take the incoming lanes in turns. Cars drive from a random crossing
-to another on the fastest route under the current speeds (Dijkstra) and look
-for another route after waiting 60 seconds at a crossing.
+accelerate, brake to the gap, dawdle, move. Cars that are blocked change to
+a neighbor lane with more space ahead if no car is close behind there.
+Crossings let as many cars pass per step as their widest incoming road has
+lanes and take the incoming roads in turns. Roundabouts are a ring of cells
+with at most 2 cells per step (54 km/h); cars enter when the ring is free
+before the entry and leave where their next road starts. Cars drive from a
+random junction to another on the fastest route under the current speeds
+(Dijkstra) and look for another route after waiting 60 seconds at a
+junction.
 
 The examples are the networks of the Java version: Small, Race, Axhausen and
 Portland (8548 crossings). `tools/net2drawio.py` converts its `.net` files,
@@ -57,13 +70,15 @@ Then open http://localhost:8000.
   `sidebar=0`, `format=0`), and the View menu opens them. It follows the
   dark mode of the system (`dark=auto`), like the page. The tab on the edge
   of the panel of the page hides it.
-- `js/roads.js` registers the road shape, which paints a connector as
-  asphalt with a dashed center line or with arrows for one-way roads, and
-  replaces the shape libraries with the palette of road elements. Other
-  draw.io apps paint roads as plain connectors.
+- `js/roads.js` registers the road and roundabout shapes, which paint
+  asphalt with edge lines, lane dividers, center lines, arrows on one-way
+  roads and stop and give-way lines, and replaces the shape libraries with
+  palettes of junctions and roads. It connects the ends of roads that are
+  dropped on junctions. Other draw.io apps paint roads as plain connectors.
 - `js/simulation.js` builds the network from the cells of the current page,
-  runs the model and paints the cars into the overlay pane of the graph. It
-  never changes the diagram, except for imports.
+  runs the model and paints the cars, the density of the lanes and the
+  traffic lights into the overlay pane of the graph. It never changes the
+  diagram, except for imports.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
   tag. To update it:
 

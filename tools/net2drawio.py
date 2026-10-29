@@ -1,10 +1,11 @@
 """
 Converts a network file of the Java traffic simulation (.net) to a .drawio
-file for the traffic simulation, with the rules of its Import and the default
-colors: crossings are 16x16 ellipses centered on the node coordinates (1 unit = 1 m), links
-in both directions become one road without arrows, the others one-way
-roads with an arrow. Plans are ignored. --flip mirrors the y-axis so that
-geographic coordinates (north up) are shown with north at the top.
+file for the traffic simulation, with the rules and styles of its Import:
+crossings are 16x16 asphalt ellipses centered on the node coordinates
+(1 unit = 1 m), links in both directions become one road (shape=road)
+without arrows, the others one-way roads with an arrow. Plans are ignored.
+--flip mirrors the y-axis so that geographic coordinates (north up) are
+shown with north at the top.
 
 Cell IDs keep the IDs of the file: n<node> for crossings, e<link> for
 one-way roads and e<link>-<reverse link> for roads in both directions.
@@ -15,9 +16,9 @@ import sys
 from xml.sax.saxutils import quoteattr
 
 SIZE = 16
-CROSSING = 'ellipse;html=1;aspect=fixed;'
-ONE_WAY = 'endArrow=block;endFill=1;endSize=4;html=1;strokeWidth=2;'
-TWO_WAY = 'endArrow=none;html=1;strokeWidth=2;'
+CROSSING = 'ellipse;aspect=fixed;strokeColor=none;fillColor=light-dark(#5f6368,#5f6368);'
+ONE_WAY = 'shape=road;endArrow=block;strokeWidth=7;'
+TWO_WAY = 'shape=road;endArrow=none;startArrow=none;strokeWidth=14;'
 
 
 def parse(path):

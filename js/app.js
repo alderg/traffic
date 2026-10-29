@@ -13,7 +13,7 @@
 		{label: 'Small, with a traffic light', name: 'small'},
 		{label: 'Race', name: 'race'},
 		{label: 'Axhausen', name: 'axhausen'},
-		{label: 'Portland (3.5 MB)', name: 'portland'}];
+		{label: 'Portland (4.1 MB)', name: 'portland'}];
 	var frame = document.getElementById('editor');
 	var startButton = document.getElementById('start');
 	var stats = document.getElementById('stats');
