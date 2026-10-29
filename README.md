@@ -24,7 +24,7 @@ the panel hides the whole panel.
 The panel works with the keyboard: Tab and Shift+Tab go through its
 controls in their order on the screen, with a focus ring in both themes,
 Enter or Space fold a section, the arrow keys change dropdowns and the
-slider, and Space checks boxes. Tab leads from the panel into the editor,
+sliders, and Space checks boxes. Tab leads from the panel into the editor,
 where draw.io keeps Tab for itself, so Alt+Shift+S moves the focus from the
 editor back to where it was in the panel and from the panel into the
 editor; draw.io does not use Alt+Shift+S.
@@ -98,7 +98,8 @@ editor; draw.io does not use Alt+Shift+S.
   belongs to the roads). With hidden vehicles, clicks go to
   the roads under them and a vehicle that is followed is let go. On again,
   each layer shows the state of now. Like the other display settings, the
-  layers are not kept when the page reloads.
+  layers are not kept when the page reloads. Map opacity below Map
+  background fades the map, see [Map Background](#map-background).
 - Show density in the panel, off by default, colors each lane by its
   density, from green when it is free to red when vehicles take half of
   its cells (stop and go), so that a truck counts twice. The statistics
@@ -490,15 +491,25 @@ The examples have no real coordinates, so the checkbox is disabled for
 them and for other diagrams. The notice of OpenStreetMap shows while a
 town is open, with the map and without.
 
+Map opacity, the slider below the checkbox, fades the map from 100 %, the
+default, to 0 %, where only the background of the diagram is left, as
+with the map off, in steps of 5 %, also with the arrow keys, in light and
+in dark mode, where the map is inverted first. The map changes while the
+slider is dragged, without loading tiles. Unlike the layers, the browser
+keeps the opacity across reloads, for all towns. The slider is disabled
+while the map is off or the diagram has none.
+
 The map is a live layer of tiles behind the transparent canvas of draw.io
 (`js/map.js`), placed again at each change of the zoom, the scroll and the
 pan, also during the zoom preview of draw.io, so that it stays on the roads
 and sharp at all zoom levels: it uses the tiles of the zoom level whose
 size is nearest to the scale, up to zoom 19, which are scaled by 0.84 to
-1.19. In dark mode the tiles are inverted. Towns are built in Web Mercator
-like the tiles, with one scale per town, and the text with the attribution
-keeps the Mercator meters of the origin of the diagram and the scale
-(`mercator`), so that saved towns get their map too.
+1.19. In dark mode the tiles are inverted. The tiles are in a pane with
+the filter of dark mode and the opacity of the slider, over the background
+color of the diagram. Towns are built in Web Mercator like the tiles, with
+one scale per town, and the text with the attribution keeps the Mercator
+meters of the origin of the diagram and the scale (`mercator`), so that
+saved towns get their map too.
 
 The tiles come from tile.openstreetmap.org, which allows light use under
 its [tile usage policy](https://operations.osmfoundation.org/policies/tiles/):

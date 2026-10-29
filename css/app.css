@@ -421,6 +421,10 @@ input[type="checkbox"] {
 	box-shadow: 0 0 0 1px var(--accent);
 }
 
+.range input:disabled {
+	cursor: default;
+}
+
 .range input:focus-visible {
 	outline-offset: 3px;
 	border-radius: 4px;

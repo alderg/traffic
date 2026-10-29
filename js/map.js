@@ -21,7 +21,9 @@
  * tiles again: of the zoom level with the size that is nearest to the
  * scale, only those in view, with the tiles of the last level below until
  * the new ones are loaded. Tiles are only kept as the browser caches them.
- * In dark mode the tiles are inverted.
+ * In dark mode the tiles are inverted. The opacity of the tiles (1 by
+ * default) fades the map into the background that draw.io gives the
+ * diagram, in both modes, without loading the tiles again.
  *
  * options.tileUrl is the template of the tiles with {z}, {x} and {y},
  * options.maxZoom their largest zoom level and options.attribution the text
@@ -53,12 +55,17 @@ window.TrafficMap = function(ui, options)
 		'background-color:transparent !important;background-image:none !important;}';
 	document.head.appendChild(style);
 
-	// Behind the diagram container, which comes later, with the order of its
-	// tiles inside
+	// Behind the diagram container, which comes later, with the background of
+	// the diagram below the tiles
 	var layer = document.createElement('div');
 	layer.className = 'trafficMap';
 	layer.style.cssText = 'position:absolute;z-index:0;display:none;overflow:hidden;pointer-events:none;';
 	parent.insertBefore(layer, container);
+
+	// The tiles in their order, with the filter of dark mode and the opacity
+	var pane = document.createElement('div');
+	pane.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;';
+	layer.appendChild(pane);
 
 	var notice = document.createElement('div');
 	notice.className = 'trafficMapNotice';
@@ -134,6 +141,17 @@ window.TrafficMap = function(ui, options)
 		});
 
 		return result;
+	};
+
+	/**
+	 * Returns the background color that draw.io gives the diagram, which the
+	 * map covers, on the canvas or, with the page view, on the container.
+	 */
+	function getBackground()
+	{
+		var svg = graph.view.canvas.ownerSVGElement;
+
+		return ((svg != null) ? svg.style.backgroundColor : '') || container.style.backgroundColor;
 	};
 
 	/**
@@ -231,7 +249,7 @@ window.TrafficMap = function(ui, options)
 					}(tile);
 					tile.img.src = getUrl(z, ((tx % n) + n) % n, ty);
 					tiles.set(key, tile);
-					layer.appendChild(tile.img);
+					pane.appendChild(tile.img);
 				}
 
 				place(tile);
@@ -291,7 +309,8 @@ window.TrafficMap = function(ui, options)
 			layer.style.top = y + 'px';
 			layer.style.width = w + 'px';
 			layer.style.height = h + 'px';
-			layer.style.filter = (dark) ? darkFilter : '';
+			layer.style.backgroundColor = getBackground();
+			pane.style.filter = (dark) ? darkFilter : '';
 			placeTiles(w, h);
 		}
 
@@ -361,6 +380,14 @@ window.TrafficMap = function(ui, options)
 		{
 			visible = value;
 			update();
+		},
+		/**
+		 * Sets the opacity of the tiles from 0 (transparent) to 1 (opaque),
+		 * after the filter of dark mode.
+		 */
+		setOpacity: function(value)
+		{
+			pane.style.opacity = (value < 1) ? String(Math.max(0, value)) : '';
 		},
 		/**
 		 * Adds a function that is called with true when the current page gets

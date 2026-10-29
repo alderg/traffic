@@ -174,18 +174,47 @@
 	};
 
 	/**
-	 * Map background shows the map behind towns, which only they have.
+	 * Map background shows the map behind towns, which only they have. Map
+	 * opacity fades it while it is shown, live while it is dragged, and is
+	 * kept in localStorage across reloads, 100 % by default.
 	 */
 	function initMapControl()
 	{
 		var checkbox = document.getElementById('map');
 		var hint = document.getElementById('map-hint');
+		var opacity = document.getElementById('map-opacity');
+		var opacityValue = document.getElementById('map-opacity-value');
+		var opacityKey = 'traffic-map-opacity';
 		checkbox.checked = map.isVisible();
+
+		try
+		{
+			var stored = parseInt(window.localStorage.getItem(opacityKey));
+
+			if (stored >= 0 && stored <= 100)
+			{
+				opacity.value = stored;
+			}
+		}
+		catch (e)
+		{
+			// Starts opaque
+		}
+
+		// The value, the filled part of the track and the map
+		function showOpacity()
+		{
+			opacityValue.textContent = opacity.value + ' %';
+			opacity.setAttribute('aria-valuetext', opacity.value + ' %');
+			opacity.style.setProperty('--fill', opacity.value + '%');
+			map.setOpacity(parseInt(opacity.value) / 100);
+		};
 
 		// The vehicles get darker colors on the light map
 		function update(available)
 		{
 			checkbox.disabled = !available;
+			opacity.disabled = !available || !map.isVisible();
 			hint.hidden = available;
 			sim.setOption('mapBackground', available && map.isVisible());
 		};
@@ -193,8 +222,27 @@
 		checkbox.addEventListener('change', function()
 		{
 			map.setVisible(checkbox.checked);
+			opacity.disabled = !map.isAvailable() || !map.isVisible();
 			sim.setOption('mapBackground', map.isAvailable() && map.isVisible());
 		});
+
+		opacity.addEventListener('input', showOpacity);
+
+		opacity.addEventListener('change', function()
+		{
+			showOpacity();
+
+			try
+			{
+				window.localStorage.setItem(opacityKey, opacity.value);
+			}
+			catch (e)
+			{
+				// Keeps the opacity until the page reloads
+			}
+		});
+
+		showOpacity();
 
 		map.addListener(update);
 		update(map.isAvailable());

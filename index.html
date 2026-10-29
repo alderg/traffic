@@ -48,6 +48,9 @@
 		<div id="layers-body" class="fold-body" role="group" aria-labelledby="layers-label">
 			<label class="check"><input id="map" type="checkbox" disabled> Map background</label>
 			<p id="map-hint" class="hint check-hint">For towns loaded from OpenStreetMap.</p>
+			<label class="row"><span id="map-opacity-label">Map opacity</span><span class="range"><input id="map-opacity"
+				type="range" min="0" max="100" step="5" value="100" aria-labelledby="map-opacity-label" disabled><output
+				id="map-opacity-value" for="map-opacity">100 %</output></span></label>
 			<label class="check"><input id="roads" type="checkbox" disabled> Roads and junctions</label>
 			<label class="check"><input id="lights" type="checkbox" disabled> Traffic light heads</label>
 			<label class="check"><input id="vehicles" type="checkbox" disabled> Vehicles</label>
