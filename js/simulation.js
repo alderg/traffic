@@ -3798,10 +3798,12 @@ window.TrafficSimulation = function(ui, listener)
 			end = pickDestination(t.dests, t['dest_' + ((inbound) ? attract : home)], start, t.radius);
 		}
 
-		if (end == null)
+		// Another junction if the model has none or only the start, eg. in
+		// small networks where all other junctions are gates
+		for (var tries = 0; (end == null || end == start) && tries < 10; tries++)
 		{
 			end = net.dests[Math.floor(Math.random() * net.dests.length)];
-			to = 'junction';
+			to = (end.gate) ? 'gate' : 'junction';
 		}
 
 		return {start: start, end: end, info: {kind: 'local', from: from, to: to}};
