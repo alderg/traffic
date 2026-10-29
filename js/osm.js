@@ -119,6 +119,13 @@ var TrafficOsm = (function()
 	{
 		return new Promise(function(resolve, reject)
 		{
+			if (signal != null && signal.aborted)
+			{
+				reject(signal.reason || new Error('Cancelled'));
+
+				return;
+			}
+
 			var timer = setTimeout(resolve, ms);
 
 			if (signal != null)
@@ -169,6 +176,12 @@ var TrafficOsm = (function()
 		if (signal != null)
 		{
 			signal.addEventListener('abort', abort);
+
+			// Sends nothing for a task that was cancelled before
+			if (signal.aborted)
+			{
+				abort();
+			}
 		}
 
 		init = Object.assign({signal: controller.signal}, init);
@@ -1012,6 +1025,7 @@ var TrafficOsm = (function()
 
 					tx.oncomplete = resolve;
 					tx.onerror = resolve;
+					tx.onabort = resolve;
 				}
 				catch (e)
 				{
