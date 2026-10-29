@@ -93,7 +93,24 @@ when they stand over violet and magenta to red for the fastest, as in the
 legend of the panel. Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
-there is space, each only if no car is close behind there. Crossings let
+there is space, each only if no car is close behind there. On roads with
+one lane per direction, a car that is blocked by a slower vehicle, eg. a
+truck, passes it through the oncoming lane, with a probability of 50 %
+per step, one car per road at a time: only if the cell behind it and two
+cells ahead of the slower one are free, if it can be past while
+accelerating to its top speed and back at least 8 cells (60 m) before the
+end of the road (also before crossings, roundabouts and joints) and 12
+before a turn, and if no oncoming car at the top speed, or one that comes
+from the end of the road, where the driver cannot see, can come within 3
+cells meanwhile. While it passes, oncoming cars brake for it and the cars
+behind it keep the cell behind it free. It goes back to its lane as soon
+as it is ahead of the other, and aborts and falls back in behind if the
+car ahead of the other leaves no space, an oncoming car or the end of
+the road comes too near or it takes longer than 60 steps. Its lane changes
+are painted like the others. Cars only pass where vehicles have different
+top speeds, so not on roads whose speed limit is below that of trucks.
+The panel counts the overtakes in the oncoming lane and those that were
+aborted. Crossings let
 as many cars pass per step as their widest incoming road has lanes and
 take the incoming roads in turns. Cars only pass from
 lanes that allow their turn and drive through crossings on a curve at one
@@ -366,12 +383,15 @@ errors of the page, the editor and the simulation are logged with their
 stack, also the errors that draw.io catches and shows in a dialog
 (`EditorUi.handleError`, also for uncaught errors). Once a second, the
 simulation writes a summary (cars driving, moving and standing, average
-speed, steps and time per step), the links and junctions with cars, the
+speed, overtakes in the oncoming lane and why they were aborted, steps and
+time per step), the links and junctions with cars, the
 cars that stand for 10 seconds or more with their place and the events of
-the last second (spawns, lane changes, crossings, roundabouts, arrivals,
-reroutes, phases) with the type of the vehicles and their number and
+the last second (spawns, lane changes, overtakes in the oncoming lane and
+how they end, crossings, roundabouts, arrivals, reroutes, phases) with the type of the vehicles and their number and
 average speed per type to the console, and a warning with the junctions when no
-car moves. `?dev=1` or `?test=1` also passes `test=1` to the editor, which
+car moves. Each step it checks the cars that pass through the oncoming lane
+and warns if one shares its cell with an oncoming car, is at the end of its
+road or passes for longer than 60 steps. `?dev=1` or `?test=1` also passes `test=1` to the editor, which
 then writes its own debug messages and has a Develop menu.
 
 ## How It Works
