@@ -356,6 +356,70 @@
 	};
 
 	/**
+	 * Makes the titled sections of the panel (data-fold) fold and unfold with
+	 * the button in their title, which controls their body (fold-body), by
+	 * click and keyboard. Which sections are folded is kept in localStorage
+	 * across reloads, with data-folded="true" as the default. Folded bodies
+	 * are hidden, while everything in them keeps working and updating.
+	 */
+	function initFolding()
+	{
+		var key = 'traffic-folded';
+		var stored = {};
+
+		try
+		{
+			var value = JSON.parse(window.localStorage.getItem(key));
+			stored = (value != null && typeof value == 'object') ? value : {};
+		}
+		catch (e)
+		{
+			// Starts with the defaults
+		}
+
+		Array.prototype.forEach.call(document.querySelectorAll('[data-fold]'), function(section)
+		{
+			var name = section.getAttribute('data-fold');
+			var button = section.querySelector('.fold');
+
+			setFolded(name, (typeof stored[name] == 'boolean') ? stored[name] :
+				section.getAttribute('data-folded') == 'true');
+
+			button.addEventListener('click', function()
+			{
+				stored[name] = button.getAttribute('aria-expanded') == 'true';
+				setFolded(name, stored[name]);
+
+				try
+				{
+					window.localStorage.setItem(key, JSON.stringify(stored));
+				}
+				catch (e)
+				{
+					// Keeps the state until the page reloads
+				}
+			});
+		});
+	};
+
+	/**
+	 * Folds or unfolds the section with the given name (data-fold) without
+	 * keeping the state, eg. to show progress or errors in it.
+	 */
+	function setFolded(name, folded)
+	{
+		var section = document.querySelector('[data-fold="' + name + '"]');
+		var button = (section != null) ? section.querySelector('.fold') : null;
+
+		if (button != null)
+		{
+			button.setAttribute('aria-expanded', String(!folded));
+			document.getElementById(button.getAttribute('aria-controls')).hidden = folded;
+			section.classList.toggle('folded', folded);
+		}
+	};
+
+	/**
 	 * Shows or hides the panel of this page. The editor takes its space.
 	 */
 	function initPanelToggle()
@@ -852,6 +916,11 @@
 		{
 			errorText.textContent = text || '';
 			errorText.hidden = text == null;
+
+			if (text != null)
+			{
+				setFolded('network', false);
+			}
 		};
 
 		/**
@@ -869,6 +938,7 @@
 			showError(null);
 			statusText.textContent = text;
 			progress.hidden = false;
+			setFolded('network', false);
 			loadButton.disabled = true;
 
 			return task;
@@ -1062,6 +1132,7 @@
 		{
 			evt.preventDefault();
 			document.body.classList.remove('collapsed');
+			setFolded('network', false);
 			document.getElementById('town').scrollIntoView({block: 'start'});
 			query.focus({preventScroll: true});
 		});
@@ -2123,6 +2194,7 @@
 		console.info('Traffic debug output on' + ((testMode) ? ', editor with test=1' : ''));
 	}
 
+	initFolding();
 	initPanelToggle();
 	waitForEditor(attach);
 })();

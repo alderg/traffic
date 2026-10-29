@@ -9,6 +9,18 @@ you can draw, edit, open and save it with the full editor while the cars
 are driving. The road network of your own town comes from OpenStreetMap,
 see [Loading Your Town](#loading-your-town).
 
+The panel on the left has Start and Reset at the top and below them
+sections that fold and unfold with a click on their title, or with Enter
+or Space on it, where a chevron shows the state: Simulation, Layers from
+the bottom up, Display, Statistics, Vehicle (while a vehicle is followed),
+Selection, Network and Drawing Roads. Layers, Display and Drawing Roads
+start folded, so that the statistics stay in view below the settings, and
+the browser keeps which sections are folded across reloads. Folding stops
+nothing: the simulation runs on and a folded section keeps updating, it is
+only not shown. Network unfolds by itself for the progress or an error of
+loading a town and for "load your town" at the top. The tab on the edge of
+the panel hides the whole panel.
+
 ## Drawing Roads
 
 - Shapes are junctions, connectors between them are roads. The Shapes
@@ -608,6 +620,13 @@ then writes its own debug messages and has a Develop menu.
   `sidebar=0`, `format=0`), and the View menu opens them. It follows the
   dark mode of the system (`dark=auto`), like the page. The tab on the edge
   of the panel of the page hides it.
+- Each titled part of the panel is a section with `data-fold="<name>"`, a
+  title `<h2>` with a button of class `fold` with the chevron and
+  `aria-controls` of its body of class `fold-body`, and `data-folded="true"`
+  if it starts folded (`initFolding` in `js/app.js`, which keeps the state
+  in localStorage as `traffic-folded`). New sections of the panel, eg. for
+  further settings, follow this pattern, and code that shows progress or
+  errors in a folded section unfolds it with `setFolded(name, false)`.
 - The favicon shows whether the simulation runs: a traffic light with the
   green lamp lit while the cars drive and the red one while they are
   paused (`img/favicon-running.svg` and `img/favicon-paused.svg`, with PNGs

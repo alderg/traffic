@@ -44,7 +44,13 @@ async function main()
 		});
 
 		await page.goto(url, {timeout: timeout, waitUntil: 'domcontentloaded'});
-		await page.check('#debug');
+		// The checkbox may be in a folded section of the panel
+		await page.evaluate(function()
+		{
+			var box = document.getElementById('debug');
+			box.checked = true;
+			box.dispatchEvent(new Event('change'));
+		});
 		await page.waitForSelector('#start:not([disabled])', {timeout: timeout});
 		console.log('The editor started and the simulation attached');
 		await page.waitForFunction(function()
