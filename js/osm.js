@@ -1244,7 +1244,7 @@ var TrafficOsm = (function()
 	function getAttributes(tags)
 	{
 		var hw = tags.highway;
-		var access = tags.motor_vehicle || tags.motorcar || tags.vehicle || tags.access;
+		var access = tags.motorcar || tags.motor_vehicle || tags.vehicle || tags.access;
 		var oneway = tags.oneway;
 		var ring = tags.junction == 'roundabout' || tags.junction == 'circular';
 
