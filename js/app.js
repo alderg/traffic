@@ -6,6 +6,11 @@
  * editor of the road network. Once it is ready, js/roads.js and
  * js/simulation.js are loaded into the frame and attached to the editor, and
  * the controls of this page drive the simulation.
+ *
+ * Debug output, with ?dev=1 or ?test=1 in the URL or the checkbox, passes
+ * test=1 to the editor, which then logs its errors and debug messages, logs
+ * all errors of the page, the editor and the simulation with their stack
+ * and makes the simulation write its state to the console once a second.
  */
 (function()
 {
@@ -15,12 +20,97 @@
 		{label: 'Axhausen', name: 'axhausen'},
 		{label: 'Portland (4.1 MB)', name: 'portland'}];
 	var frame = document.getElementById('editor');
+	var params = new URLSearchParams(window.location.search);
+	var debug = params.get('dev') == '1' || params.get('test') == '1';
+	frame.src = frame.getAttribute('data-src') + ((debug) ? '&test=1' : '');
 	var startButton = document.getElementById('start');
 	var stats = document.getElementById('stats');
 	var ui = null;
 	var sim = null;
 	var roads = null;
 	var updateCycle = null;
+
+	/**
+	 * Logs the given error with its stack and the given context if debug
+	 * output is on, once for errors that are thrown again.
+	 */
+	function logError(e, context)
+	{
+		if (debug && e != null && !e.trafficLogged)
+		{
+			try
+			{
+				e.trafficLogged = true;
+			}
+			catch (ex)
+			{
+				// ignore
+			}
+
+			console.error('Traffic error' + ((context != null) ? ' in ' + context : '') + ':', e);
+		}
+	};
+
+	/**
+	 * Logs uncaught errors and rejections of the given window.
+	 */
+	function addErrorListeners(win, name)
+	{
+		win.addEventListener('error', function(evt)
+		{
+			logError((evt.error != null) ? evt.error : evt.message + ' (' + evt.filename +
+				':' + evt.lineno + ':' + evt.colno + ')', name);
+		});
+
+		win.addEventListener('unhandledrejection', function(evt)
+		{
+			logError(evt.reason, name + ' promise');
+		});
+	};
+
+	addErrorListeners(window, 'page');
+
+	// The window of the editor is replaced when it loads
+	frame.addEventListener('load', function()
+	{
+		addErrorListeners(frame.contentWindow, 'editor');
+	});
+
+	/**
+	 * Turns the debug output on or off, in the editor, the simulation and the
+	 * URL of this page, so that it stays on after a reload.
+	 */
+	function setDebug(value)
+	{
+		var win = frame.contentWindow;
+		debug = value;
+		params['delete']('test');
+
+		if (value)
+		{
+			params.set('dev', '1');
+		}
+		else
+		{
+			params['delete']('dev');
+		}
+
+		var query = params.toString();
+		window.history.replaceState(null, '', window.location.pathname +
+			((query.length > 0) ? '?' + query : '') + window.location.hash);
+
+		if (win != null && win.urlParams != null)
+		{
+			win.urlParams['test'] = (value) ? '1' : '0';
+		}
+
+		if (sim != null)
+		{
+			sim.setDebug(value);
+		}
+
+		console.info('Traffic debug output ' + ((value) ? 'on' : 'off'));
+	};
 
 	function addOptions(select, values, labels)
 	{
@@ -92,11 +182,13 @@
 		loadScripts(['js/roads.js', 'js/simulation.js'], function()
 		{
 			ui = editorUi;
+			win.TrafficRoads.onError = logError;
 			roads = win.TrafficRoads(ui);
 			keepFormatPanelClosed();
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
 			initSelection();
+			sim.setDebug(debug);
 			sim.start();
 
 			if (ui.isDiagramEmpty())
@@ -347,6 +439,7 @@
 			}
 		};
 
+		show = win.TrafficRoads.guard(show, 'selection panel');
 		graph.getSelectionModel().addListener(win.mxEvent.CHANGE, show);
 		graph.model.addListener(win.mxEvent.CHANGE, show);
 
@@ -479,6 +572,7 @@
 			openFile(xml, name + '.drawio');
 		})['catch'](function(e)
 		{
+			logError(e, 'example ' + name);
 			ui.handleError(e);
 		});
 	};
@@ -572,6 +666,19 @@
 			controls[i].disabled = false;
 		}
 	};
+
+	var debugBox = document.getElementById('debug');
+	debugBox.checked = debug;
+
+	debugBox.addEventListener('change', function()
+	{
+		setDebug(debugBox.checked);
+	});
+
+	if (debug)
+	{
+		console.info('Traffic debug output on, editor with test=1');
+	}
 
 	initPanelToggle();
 	waitForEditor(attach);

@@ -35,7 +35,10 @@
  * and look for another route after waiting at a junction.
  *
  * Cars, traffic lights and the density of the lanes are painted into the
- * overlay pane. The simulation never changes the diagram, only importFile
+ * overlay pane. With debug output, the state of the cars, links and
+ * junctions and the events of the last second (spawns, lane changes,
+ * crossings, roundabouts, arrivals, reroutes, phases) go to the console
+ * once a second. The simulation never changes the diagram, only importFile
  * inserts cells. This script runs in the window of the editor after
  * js/roads.js, whose lane geometry it uses: TrafficSimulation(ui, listener)
  * attaches the simulation to the graph of the given EditorUi and calls
@@ -76,6 +79,28 @@ window.TrafficSimulation = function(ui, listener)
 	var frameId = null;
 	var lastStep = 0;
 	var lastStats = 0;
+	var debug = false;
+	var events = [];
+	var lastDebug = 0;
+
+	/**
+	 * Records the given event of the given car with the given data for the
+	 * debug output.
+	 */
+	function record(type, v, data)
+	{
+		if (debug && events.length < 10000)
+		{
+			var e = {time: sim.time, event: type, car: (v != null) ? v.id : ''};
+
+			for (var key in data)
+			{
+				e[key] = data[key];
+			}
+
+			events.push(e);
+		}
+	};
 
 	/**
 	 * One direction of a road: the given lanes of cells from one junction to
@@ -534,6 +559,7 @@ window.TrafficSimulation = function(ui, listener)
 				this.cells[m[1]][m[3]] = null;
 				this.cells[m[2]][m[3]] = m[0];
 				m[0].lane = m[2];
+				record('lane', m[0], {link: this.key, from: m[1], to: m[2], cell: m[3]});
 			}
 		}
 	};
@@ -689,6 +715,7 @@ window.TrafficSimulation = function(ui, listener)
 				this.counter = 0;
 				this.phase = (this.phase + 1) % this.phases.length;
 				this.finger = 0;
+				record('phase', null, {junction: this.id, phase: this.phase});
 			}
 
 			green = (this.counter < this.light) ? this.phases[this.phase] : [];
@@ -711,6 +738,8 @@ window.TrafficSimulation = function(ui, listener)
 
 					if (entry != null)
 					{
+						record('cross', v, {junction: this.id, from: link.key + ':' + k,
+							to: next.key + ':' + entry.lane, steps: entry.steps});
 						next.addTransit(link.pop(k), entry.lane, entry.steps, entry.curve);
 						this.finger = (this.finger + i + 1) % green.length;
 						passed++;
@@ -963,6 +992,7 @@ window.TrafficSimulation = function(ui, listener)
 				this.rings[m[1]][m[3]] = null;
 				this.rings[m[2]][m[3]] = m[0];
 				m[0].ringLane = m[2];
+				record('ringLane', m[0], {junction: this.id, from: m[1], to: m[2], cell: m[3]});
 			}
 		}
 	};
@@ -1047,6 +1077,7 @@ window.TrafficSimulation = function(ui, listener)
 						this.rings[0][v.cell] = null;
 						this.vehicles--;
 						v.path = this.getExitPath(v, next, lane);
+						record('ringExit', v, {junction: this.id, cell: v.cell, to: next.key + ':' + lane});
 						next.enter(v, lane);
 					}
 				}
@@ -1069,6 +1100,7 @@ window.TrafficSimulation = function(ui, listener)
 					v.path = addCurvePoints((v.prevLink != null) ? [v.getPoint(true)] : [],
 						createCurveBetween(link.getPoint(k, link.out), getDirection(link.paths[k].points, false),
 						this.getPoint(0, e), this.getTangent(e)));
+					record('ringEnter', v, {junction: this.id, cell: e, from: link.key + ':' + k});
 					link.pop(k);
 					this.rings[0][e] = v;
 					v.link = null;
@@ -1747,6 +1779,7 @@ window.TrafficSimulation = function(ui, listener)
 
 	function addActive(v)
 	{
+		record('spawn', v, {link: v.route[0].key, dest: v.dest.id});
 		sim.queued--;
 		sim.active.add(v);
 		v.node = document.createElementNS(mxConstants.NS_SVG, 'circle');
@@ -1788,6 +1821,7 @@ window.TrafficSimulation = function(ui, listener)
 
 	function park(v)
 	{
+		record('arrive', v, {junction: v.dest.id, trip: sim.time - v.start});
 		removeActive(v);
 		sim.arrived++;
 		sim.travel += sim.time - v.start;
@@ -1807,6 +1841,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			v.route = route;
 			v.index = 0;
+			record('reroute', v, {junction: v.getJunction().id, links: route.length});
 		}
 
 		return route != null;
@@ -2040,6 +2075,8 @@ window.TrafficSimulation = function(ui, listener)
 		var old = net;
 		dirty = false;
 		net = createNetwork();
+		record('network', null, {junctions: net.crossings.length, links: net.links.length,
+			lanes: net.lanes, cells: net.cells});
 
 		if (old != null && sim != null)
 		{
@@ -2462,13 +2499,69 @@ window.TrafficSimulation = function(ui, listener)
 			updateStats();
 			lastStats = now;
 		}
+
+		if (debug && now - lastDebug >= 1000)
+		{
+			logState();
+			lastDebug = now;
+		}
+	};
+
+	/**
+	 * Writes the cars, the links and junctions with cars and the events since
+	 * the last call to the console.
+	 */
+	function logState()
+	{
+		var links = [];
+		var junctions = [];
+
+		for (var i = 0; i < net.links.length && links.length < 500; i++)
+		{
+			var link = net.links[i];
+			var transit = 0;
+
+			for (var k = 0; k < link.transit.length; k++)
+			{
+				transit += link.transit[k].length;
+			}
+
+			if (link.vehicles > 0 || link.queue.length > 0 || transit > 0)
+			{
+				links.push({link: link.key, from: link.from.id, to: link.to.id, lanes: link.cells.length,
+					cars: link.counts.join('/'), waiting: link.queue.length, crossing: transit,
+					speed: Math.round(link.vavg * 100) / 100});
+			}
+		}
+
+		for (var i = 0; i < net.crossings.length && junctions.length < 500; i++)
+		{
+			var junction = net.crossings[i];
+
+			if (junction.rings != null || junction.phases != null)
+			{
+				junctions.push({junction: junction.id, type: (junction.rings != null) ? 'roundabout' : 'traffic light',
+					cars: (junction.rings != null) ? junction.vehicles : '', phase: (junction.phases != null) ?
+					junction.phase + ' ' + ['red', 'yellow', 'green'][junction.getSignal(junction.phase)] : ''});
+			}
+		}
+
+		console.groupCollapsed('Traffic ' + formatTime(sim.time) + ': ' + sim.active.size + ' driving, ' +
+			sim.queued + ' waiting, ' + sim.arrived + ' arrived, ' + events.length + ' events');
+		console.log('Network', {junctions: net.crossings.length, links: net.links.length, lanes: net.lanes,
+			cells: net.cells, running: running, speed: config.speed});
+		console.table(links);
+		console.table(junctions);
+		console.table(events.slice(0, 1000));
+		console.groupEnd();
+		events = [];
 	};
 
 	function schedule()
 	{
 		if (frameId == null)
 		{
-			frameId = window.requestAnimationFrame(frame);
+			frameId = window.requestAnimationFrame(tick);
 		}
 	};
 
@@ -2726,32 +2819,34 @@ window.TrafficSimulation = function(ui, listener)
 		}
 	};
 
-	graph.model.addListener(mxEvent.CHANGE, invalidate);
+	var tick = roads.guard(frame, 'simulation frame');
+	graph.model.addListener(mxEvent.CHANGE, roads.guard(invalidate, 'simulation model change'));
 
 	// Opening a file starts a new simulation
-	ui.editor.addListener('fileLoaded', function()
+	ui.editor.addListener('fileLoaded', roads.guard(function()
 	{
 		if (overlay != null)
 		{
 			reset();
 		}
-	});
+	}, 'simulation file loaded'));
 
 	// Traced outlines of images move edges without a change of the model
 	if (graph.refreshTracedOutlines != null)
 	{
 		var refreshTracedOutlines = graph.refreshTracedOutlines;
 
-		graph.refreshTracedOutlines = function()
+		graph.refreshTracedOutlines = roads.guard(function()
 		{
 			refreshTracedOutlines.apply(this, arguments);
 			invalidate();
-		};
+		}, 'simulation traced outlines');
 	}
 
-	graph.view.addListener(mxEvent.SCALE, updateTransform);
-	graph.view.addListener(mxEvent.TRANSLATE, updateTransform);
-	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, updateTransform);
+	var transform = roads.guard(updateTransform, 'simulation transform');
+	graph.view.addListener(mxEvent.SCALE, transform);
+	graph.view.addListener(mxEvent.TRANSLATE, transform);
+	graph.view.addListener(mxEvent.SCALE_AND_TRANSLATE, transform);
 
 	/**
 	 * Returns the timing of the traffic light with the given ID in steps:
@@ -2766,7 +2861,18 @@ window.TrafficSimulation = function(ui, listener)
 			cycle: crossing.phases.length * (crossing.light + crossing.yellow)} : null;
 	};
 
+	/**
+	 * Turns the debug output on or off.
+	 */
+	function setDebug(value)
+	{
+		debug = value;
+		events = [];
+		lastDebug = 0;
+		schedule();
+	};
+
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
-		importFile: importFile, getLight: getLight};
+		importFile: importFile, getLight: getLight, setDebug: setDebug};
 };

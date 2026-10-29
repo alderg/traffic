@@ -78,6 +78,16 @@ python3 -m http.server 8000
 
 Then open http://localhost:8000.
 
+## Debugging
+
+`?dev=1` (or `?test=1`) in the URL or the Debug output checkbox in the panel
+turns on debug output: the editor gets `test=1` and logs its errors and
+debug messages, all errors of the page, the editor and the simulation are
+logged with their stack, and the simulation writes the cars, the links and
+junctions with cars and the events of the last second (spawns, lane
+changes, crossings, roundabouts, arrivals, reroutes, phases) to the console
+once a second. The checkbox keeps the setting in the URL.
+
 ## How It Works
 
 - `index.html`, `css/app.css` and `js/app.js` are the page. draw.io runs in

@@ -647,7 +647,7 @@ window.TrafficRoads = function(ui)
 	 */
 	var validate = graph.view.validate;
 
-	graph.view.validate = function()
+	graph.view.validate = roads.guard(function()
 	{
 		validate.apply(this, arguments);
 
@@ -664,7 +664,7 @@ window.TrafficRoads = function(ui)
 				}
 			}
 		}
-	};
+	}, 'repaint crossings');
 
 	function CrossingShape()
 	{
@@ -797,7 +797,7 @@ window.TrafficRoads = function(ui)
 	 * or restyled, as crossings follow from their roads and roads paint stop
 	 * and give-way lines for their junctions.
 	 */
-	graph.model.addListener(mxEvent.CHANGE, function(sender, evt)
+	graph.model.addListener(mxEvent.CHANGE, roads.guard(function(sender, evt)
 	{
 		var changes = evt.getProperty('edit').changes;
 		var model = graph.model;
@@ -878,7 +878,7 @@ window.TrafficRoads = function(ui)
 				}
 			}
 		}
-	});
+	}, 'update junctions'));
 
 	// Junctions in the shape picker of the hover arrows and connectors
 	ui.defaultShapePickerEntries = [
@@ -982,15 +982,15 @@ window.TrafficRoads = function(ui)
 		});
 	};
 
-	graph.addListener(mxEvent.CELLS_ADDED, function(sender, evt)
+	graph.addListener(mxEvent.CELLS_ADDED, roads.guard(function(sender, evt)
 	{
 		connectEnds(evt.getProperty('cells'));
-	});
+	}, 'connect added roads'));
 
-	graph.addListener(mxEvent.CELLS_MOVED, function(sender, evt)
+	graph.addListener(mxEvent.CELLS_MOVED, roads.guard(function(sender, evt)
 	{
 		connectEnds(evt.getProperty('cells'));
-	});
+	}, 'connect moved roads'));
 
 	// Paints roads of a diagram that was opened before the shapes existed
 	graph.refresh();
@@ -1165,6 +1165,36 @@ window.TrafficRoads = function(ui)
 			{
 				model.endUpdate();
 			}
+		}
+	};
+};
+
+/**
+ * Function that is called with errors and the name of the function that
+ * threw them in functions wrapped with guard, eg. to log them with stack.
+ */
+TrafficRoads.onError = null;
+
+/**
+ * Returns the given function wrapped so that its errors are passed to
+ * onError with the given name before they are thrown again.
+ */
+TrafficRoads.guard = function(fn, name)
+{
+	return function()
+	{
+		try
+		{
+			return fn.apply(this, arguments);
+		}
+		catch (e)
+		{
+			if (TrafficRoads.onError != null)
+			{
+				TrafficRoads.onError(e, name);
+			}
+
+			throw e;
 		}
 	};
 };
