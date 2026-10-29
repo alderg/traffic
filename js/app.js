@@ -18,6 +18,9 @@
  * OpenStreetMap at start instead of the example (js/osm.js), with roads=main,
  * collector or all and a section as circle=<lat>,<lon>,<m> or
  * bbox=<south>,<west>,<north>,<east>. Copy Link puts the loaded town there.
+ * Towns show the map of OpenStreetMap behind their roads (js/map.js) with
+ * the tiles of ?tiles=<url with {z}, {x} and {y}>, tileMaxZoom=<zoom> and
+ * tileAttribution=<text>, by default tile.openstreetmap.org.
  */
 (function()
 {
@@ -40,6 +43,8 @@
 	var roads = null;
 	var updateSelection = null;
 	var town = null;
+	var map = null;
+	var tiles = getTiles();
 	var vehicleSection = document.getElementById('vehicle');
 	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
@@ -126,6 +131,60 @@
 
 			return handleError.apply(this, arguments);
 		};
+	};
+
+	/**
+	 * Returns the tiles of the maps: the template of their URL with {z},
+	 * {x} and {y} of ?tiles, their largest zoom level and the attribution
+	 * that the tile server asks for besides OpenStreetMap, by default the
+	 * tiles of OpenStreetMap, which allow light use.
+	 */
+	function getTiles()
+	{
+		var url = params.get('tiles');
+		var zoom = parseInt(params.get('tileMaxZoom'));
+
+		if (url != null && !(/^https?:\/\//.test(url) && url.indexOf('{z}') >= 0 &&
+			url.indexOf('{x}') >= 0 && url.indexOf('{y}') >= 0))
+		{
+			console.warn('Traffic: tiles must be an http(s) URL with {z}, {x} and {y}: ' + url);
+			url = null;
+		}
+
+		return {tileUrl: url || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+			maxZoom: (zoom >= 0 && zoom <= 24) ? zoom : 19, attribution: params.get('tileAttribution')};
+	};
+
+	/**
+	 * Returns the URL of the given tile.
+	 */
+	function getTileUrl(z, x, y)
+	{
+		return tiles.tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y).replace('{s}', 'a').replace('{r}', '');
+	};
+
+	/**
+	 * Map background shows the map behind towns, which only they have.
+	 */
+	function initMapControl()
+	{
+		var checkbox = document.getElementById('map');
+		var hint = document.getElementById('map-hint');
+		checkbox.checked = map.isVisible();
+
+		function update(available)
+		{
+			checkbox.disabled = !available;
+			hint.hidden = available;
+		};
+
+		checkbox.addEventListener('change', function()
+		{
+			map.setVisible(checkbox.checked);
+		});
+
+		map.addListener(update);
+		update(map.isAvailable());
 	};
 
 	/**
@@ -248,10 +307,11 @@
 			logHandledErrors();
 			win.TrafficRoads.onError = logError;
 			roads = win.TrafficRoads(ui);
-			win.TrafficMap(ui);
+			map = win.TrafficMap(ui, tiles);
 			keepFormatPanelClosed();
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
+			initMapControl();
 			initSelection();
 			town = initTown();
 			sim.setDebug(debug);
@@ -720,7 +780,7 @@
 		var placeBox = document.getElementById('town-place');
 		var nameText = document.getElementById('town-name');
 		var kindText = document.getElementById('town-kind');
-		var map = document.getElementById('town-map');
+		var preview = document.getElementById('town-map');
 		var level = document.getElementById('town-level');
 		var sectionSelect = document.getElementById('town-section');
 		var sizeText = document.getElementById('town-size');
@@ -731,7 +791,6 @@
 		var errorText = document.getElementById('town-error');
 		var infoText = document.getElementById('town-info');
 		var svgNs = 'http://www.w3.org/2000/svg';
-		var tileUrl = 'https://tile.openstreetmap.org/';
 		var defaultRadius = 2000;
 		var place = null;
 		var section = null;
@@ -1111,8 +1170,8 @@
 		 */
 		function drawMap()
 		{
-			var w = map.clientWidth || 268;
-			var h = map.clientHeight || 200;
+			var w = preview.clientWidth || 268;
+			var h = preview.clientHeight || 200;
 			var b = osm.getBounds(place, null);
 			var zf = Math.log(Math.min((w - 16) / (mercatorX(b[3], 0) - mercatorX(b[1], 0)),
 				(h - 16) / (mercatorY(b[0], 0) - mercatorY(b[2], 0)))) / Math.LN2;
@@ -1123,10 +1182,10 @@
 			view = {z: z, w: w / k, h: h / k};
 			view.x = cx - view.w / 2;
 			view.y = cy - view.h / 2;
-			map.setAttribute('viewBox', [view.x, view.y, view.w, view.h].join(' '));
-			map.textContent = '';
+			preview.setAttribute('viewBox', [view.x, view.y, view.w, view.h].join(' '));
+			preview.textContent = '';
 
-			var tiles = createSvg('g', {'class': 'tiles'});
+			var tileLayer = createSvg('g', {'class': 'tiles'});
 			var n = Math.pow(2, z);
 
 			for (var tx = Math.floor(view.x / 256); tx <= Math.floor((view.x + view.w) / 256); tx++)
@@ -1134,12 +1193,12 @@
 				for (var ty = Math.max(0, Math.floor(view.y / 256)); ty <= Math.min(n - 1,
 					Math.floor((view.y + view.h) / 256)); ty++)
 				{
-					tiles.appendChild(createSvg('image', {href: tileUrl + z + '/' + (((tx % n) + n) % n) + '/' + ty + '.png',
+					tileLayer.appendChild(createSvg('image', {href: getTileUrl(z, ((tx % n) + n) % n, ty),
 						x: tx * 256, y: ty * 256, width: 256, height: 256}));
 				}
 			}
 
-			map.appendChild(tiles);
+			preview.appendChild(tileLayer);
 
 			if (place.rings != null)
 			{
@@ -1151,15 +1210,15 @@
 					}).join('L') + 'Z';
 				}).join('');
 
-				map.appendChild(createSvg('path', {'class': 'boundary', d: d}));
+				preview.appendChild(createSvg('path', {'class': 'boundary', d: d}));
 			}
 			else
 			{
-				map.appendChild(createSvg('circle', {'class': 'boundary radius', cx: mercatorX(place.lon, z),
+				preview.appendChild(createSvg('circle', {'class': 'boundary radius', cx: mercatorX(place.lon, z),
 					cy: mercatorY(place.lat, z), r: place.radius / getMetersPerUnit(place.lat)}));
 			}
 
-			map.appendChild(createSvg('g', {'class': 'section-layer'}));
+			preview.appendChild(createSvg('g', {'class': 'section-layer'}));
 			drawSection();
 		};
 
@@ -1169,11 +1228,11 @@
 		};
 
 		/**
-		 * Shows the given section or the current one on the map.
+		 * Shows the given section or the current one on the preview.
 		 */
 		function drawSection(s)
 		{
-			var layer = map.querySelector('.section-layer');
+			var layer = preview.querySelector('.section-layer');
 			s = (s !== undefined) ? s : section;
 
 			if (layer != null)
@@ -1200,7 +1259,7 @@
 		 */
 		function getMapPoint(evt)
 		{
-			var r = map.getBoundingClientRect();
+			var r = preview.getBoundingClientRect();
 			var x = view.x + (evt.clientX - r.left) / r.width * view.w;
 			var y = view.y + (evt.clientY - r.top) / r.height * view.h;
 
@@ -1225,18 +1284,18 @@
 		var down = null;
 		var dragging = false;
 
-		map.addEventListener('pointerdown', function(evt)
+		preview.addEventListener('pointerdown', function(evt)
 		{
 			if (view != null && evt.button == 0)
 			{
 				down = getMapPoint(evt);
 				dragging = false;
-				map.setPointerCapture(evt.pointerId);
+				preview.setPointerCapture(evt.pointerId);
 				evt.preventDefault();
 			}
 		});
 
-		map.addEventListener('pointermove', function(evt)
+		preview.addEventListener('pointermove', function(evt)
 		{
 			if (down != null)
 			{
@@ -1250,7 +1309,7 @@
 			}
 		});
 
-		map.addEventListener('pointerup', function(evt)
+		preview.addEventListener('pointerup', function(evt)
 		{
 			if (down != null)
 			{
@@ -1265,7 +1324,7 @@
 			}
 		});
 
-		map.addEventListener('pointercancel', function()
+		preview.addEventListener('pointercancel', function()
 		{
 			down = null;
 			drawSection();
@@ -1279,7 +1338,7 @@
 
 			resizeTimer = window.setTimeout(function()
 			{
-				if (place != null && !placeBox.hidden && view != null && Math.abs(map.clientWidth - view.w) > 1)
+				if (place != null && !placeBox.hidden && view != null && Math.abs(preview.clientWidth - view.w) > 1)
 				{
 					drawMap();
 				}

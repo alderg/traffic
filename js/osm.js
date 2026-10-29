@@ -17,7 +17,9 @@
  *
  * build turns the ways of the roads into junctions and roads like
  * tools/net2drawio.py does for the examples, in units of 1 m around the
- * center of the town with north up: ways of the chosen road classes are
+ * center of the town with north up, in Web Mercator like the map tiles
+ * with the scale of the center (see createProjection), which the text with
+ * the attribution keeps as mercator for js/map.js: ways of the chosen road classes are
  * cut where they leave the town (its administrative boundary, a circle
  * around the center for places without one, and the chosen section) and
  * the cut ends are gates, junctions with gate=1 where cars enter and leave
@@ -27,9 +29,10 @@
  * of the ways as its points, simplified. Roads keep oneway, the lanes per
  * direction (lanes, lanes:forward and lanes:backward) and maxspeed (as
  * maxSpeed in km/h). Rings of junction=roundabout become roundabouts,
- * highway=traffic_signals on or near a junction a traffic light, junctions
- * closer than a few meters, eg. of dual carriageways, one junction, and
- * one-way roads in both directions between the same junctions one road.
+ * highway=traffic_signals on or near a junction a traffic light, and
+ * junctions closer than a few meters, eg. of dual carriageways, one
+ * junction, with the old ends of the roads as waypoints. The carriageways
+ * of dual roads stay one-way roads, so that cars drive on them on the map.
  * Small parts that are not connected to the rest are dropped.
  */
 var TrafficOsm = (function()
@@ -66,6 +69,7 @@ var TrafficOsm = (function()
 
 	var limits = {junctions: 4000, roads: 6000};
 	var earthRadius = 6371008.8;
+	var mercatorRadius = 6378137;
 	var degree = Math.PI / 180 * earthRadius;
 	var boundaryTolerance = 25;
 	var signalDistance = 45;
@@ -73,7 +77,8 @@ var TrafficOsm = (function()
 	var maxClusterSize = 40;
 	var simplifyTolerance = 4;
 	var lightGreen = 10;
-	var laneWidth = 7;
+	// Lanes as wide as on the streets of the map
+	var laneWidth = 3.5;
 	var crossingSize = 16;
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=light-dark(#5f6368,#5f6368);';
 	var roundaboutStyle = 'shape=roundabout;aspect=fixed;resizeCentered=1;perimeter=ellipsePerimeter;' +
@@ -885,16 +890,33 @@ var TrafficOsm = (function()
 	};
 
 	/**
-	 * Equirectangular projection in m around the given center, north up.
+	 * Web Mercator (EPSG:3857), the projection of the map tiles, around the
+	 * given center with north up, scaled by the cosine of its latitude so
+	 * that 1 unit is 1 m there. x0 and y0 are the Mercator meters of the
+	 * center and k the scale.
 	 */
 	function createProjection(lat0, lon0)
 	{
-		var k = degree * Math.cos(lat0 * Math.PI / 180);
+		var k = Math.cos(lat0 * Math.PI / 180);
+		var x0 = getMercatorX(lon0);
+		var y0 = getMercatorY(lat0);
 
-		return {x: function(lon) { return (lon - lon0) * k; },
-			y: function(lat) { return (lat0 - lat) * degree; },
-			lon: function(x) { return lon0 + x / k; },
-			lat: function(y) { return lat0 - y / degree; }};
+		return {x0: x0, y0: y0, k: k,
+			x: function(lon) { return (getMercatorX(lon) - x0) * k; },
+			y: function(lat) { return (y0 - getMercatorY(lat)) * k; },
+			lon: function(x) { return (x0 + x / k) / mercatorRadius * 180 / Math.PI; },
+			lat: function(y) { return (2 * Math.atan(Math.exp((y0 - y / k) / mercatorRadius)) -
+				Math.PI / 2) * 180 / Math.PI; }};
+	};
+
+	function getMercatorX(lon)
+	{
+		return mercatorRadius * lon * Math.PI / 180;
+	};
+
+	function getMercatorY(lat)
+	{
+		return mercatorRadius * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360));
 	};
 
 	/**
@@ -1636,7 +1658,7 @@ var TrafficOsm = (function()
 						return e.fwd;
 					})));
 					var v = g.addVertex(cx, cy, 'r' + count++, 'roundabout');
-					v.radius = Math.max(15, r + lanes * laneWidth / 2 + 1);
+					v.radius = Math.max(10, r + lanes * laneWidth / 2 + 1);
 					v.lanes = lanes;
 
 					edges.forEach(function(e)
@@ -1827,8 +1849,26 @@ var TrafficOsm = (function()
 					root.light = root.light || m.light;
 				});
 
+				c.members.forEach(function(m)
+				{
+					m.x0 = m.x;
+					m.y0 = m.y;
+				});
+
 				root.x = x;
 				root.y = y;
+
+				// Moves the end to the new junction and keeps the old end as a
+				// waypoint, so that the road stays on its street
+				var moveEnd = function(e, source, m)
+				{
+					g.setTerminal(e, source, root);
+
+					if (Math.abs(m.x0 - x) + Math.abs(m.y0 - y) > 0.5)
+					{
+						e.pts.splice((source) ? 1 : e.pts.length - 1, 0, {x: m.x0, y: m.y0});
+					}
+				};
 
 				c.members.forEach(function(m)
 				{
@@ -1837,13 +1877,13 @@ var TrafficOsm = (function()
 						// Each end once, loops have the edge twice
 						if (e.from == m && (m != root || e.pts[0].x != x || e.pts[0].y != y))
 						{
-							g.setTerminal(e, true, root);
+							moveEnd(e, true, m);
 						}
 
 						if (e.to == m && (m != root || e.pts[e.pts.length - 1].x != x ||
 							e.pts[e.pts.length - 1].y != y))
 						{
-							g.setTerminal(e, false, root);
+							moveEnd(e, false, m);
 						}
 					});
 
@@ -1860,69 +1900,6 @@ var TrafficOsm = (function()
 						g.removeEdge(e);
 					}
 				});
-			}
-		});
-	};
-
-	/**
-	 * Makes one road in both directions of two one-way roads in opposite
-	 * directions between the same junctions that run side by side.
-	 */
-	function mergePairs(g)
-	{
-		var pairs = new Map();
-
-		g.getEdges().forEach(function(e)
-		{
-			if (e.bwd == 0 && e.from != e.to)
-			{
-				var key = Math.min(e.from.index, e.to.index) + ',' + Math.max(e.from.index, e.to.index);
-
-				if (!pairs.has(key))
-				{
-					pairs.set(key, []);
-				}
-
-				pairs.get(key).push(e);
-			}
-		});
-
-		pairs.forEach(function(list)
-		{
-			for (var i = 0; i < list.length; i++)
-			{
-				for (var j = i + 1; j < list.length && !list[i].removed; j++)
-				{
-					var a = list[i];
-					var b = list[j];
-					var la = getLength(a);
-					var lb = getLength(b);
-
-					if (!b.removed && a.from == b.to && a.to == b.from && Math.max(la, lb) < 1.5 * Math.min(la, lb))
-					{
-						var back = b.pts.slice().reverse();
-						var ma = getPointAt(a.pts, 0.5);
-						var mb = getPointAt(back, 0.5);
-
-						if (Math.sqrt((ma.x - mb.x) * (ma.x - mb.x) + (ma.y - mb.y) * (ma.y - mb.y)) < 50)
-						{
-							var n = Math.max(a.pts.length, b.pts.length);
-							var pts = [];
-
-							for (var k = 0; k < n; k++)
-							{
-								var p = getPointAt(a.pts, k / (n - 1));
-								var q = getPointAt(back, k / (n - 1));
-								pts.push({x: (p.x + q.x) / 2, y: (p.y + q.y) / 2});
-							}
-
-							g.removeEdge(a);
-							g.removeEdge(b);
-							g.addEdge(a.from, a.to, pts, {fwd: a.fwd, bwd: b.fwd,
-								speed: Math.max(a.speed, b.speed), ring: false}, a.id);
-						}
-					}
-				}
 			}
 		});
 	};
@@ -2085,7 +2062,8 @@ var TrafficOsm = (function()
 				new Array(e.fwd).join('f,') + 'f;';
 		}
 
-		return style + 'strokeWidth=' + ((e.fwd + e.bwd) * laneWidth) + ';maxSpeed=' + e.speed + ';';
+		return style + 'laneWidth=' + laneWidth + ';strokeWidth=' + ((e.fwd + e.bwd) * laneWidth) +
+			';maxSpeed=' + e.speed + ';';
 	};
 
 	/**
@@ -2106,7 +2084,6 @@ var TrafficOsm = (function()
 		mergeChains(g, false);
 		contract(g);
 		mergeChains(g, false);
-		mergePairs(g);
 		dropStubs(g);
 		dropLoops(g);
 		mergeChains(g, true);
@@ -2188,7 +2165,7 @@ var TrafficOsm = (function()
 		vertices.forEach(function(v)
 		{
 			var size = (v.kind == 'roundabout') ? 2 * v.radius : crossingSize;
-			var style = (v.kind == 'roundabout') ? roundaboutStyle + 'lanes=' + v.lanes + ';' :
+			var style = (v.kind == 'roundabout') ? roundaboutStyle + 'lanes=' + v.lanes + ';laneWidth=' + laneWidth + ';' :
 				crossingStyle + ((v.light) ? 'trafficLight=' + lightGreen + ';' : '') +
 				((v.kind == 'gate') ? 'gate=1;' : '');
 
@@ -2233,11 +2210,14 @@ var TrafficOsm = (function()
 				((points.length > 0) ? '<Array as="points">' + points + '</Array>' : '') + '</mxGeometry></mxCell>');
 		});
 
-		// Attribution of the data below the network
+		// Attribution of the data below the network with the Mercator meters
+		// of the origin of the diagram and the scale for the map
 		var font = Math.max(12, Math.round((x1 - x0) / 60));
 		var date = options.date || new Date().toISOString();
+		var mercator = [(proj.x0 - dx / proj.k).toFixed(3), (proj.y0 + dy / proj.k).toFixed(3), proj.k.toFixed(12)];
 		out.push('<UserObject label="' + escape(name + ': roads ' + attribution + ' (ODbL), ' +
-			date.substring(0, 10)) + '" link="' + copyrightUrl + '" id="osm-attribution">' +
+			date.substring(0, 10)) + '" link="' + copyrightUrl + '" mercator="' + mercator.join(',') +
+			'" id="osm-attribution">' +
 			'<mxCell style="text;html=1;align=left;verticalAlign=top;whiteSpace=nowrap;fontSize=' + font +
 			';fontColor=light-dark(#59636e,#9aa0a6);" vertex="1" parent="1"><mxGeometry x="40" y="' +
 			(y1 + dy + 2 * font).toFixed(0) + '" width="' + (30 * font) + '" height="' + Math.round(1.5 * font) +

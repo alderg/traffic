@@ -176,6 +176,43 @@ Under Network, Load your town loads the roads of a town or city from
   loading again, also a section of a loaded town. Load again loads the
   roads of a cached town again.
 
+### Map Background
+
+Towns show the map of OpenStreetMap behind their roads, so that the cars
+drive on the streets of the map. Map background in the panel turns it on
+and off, like the other display settings: on, the map is behind the
+diagram and the roads and junctions of the diagram are not drawn; off,
+there is no map and the roads are drawn as in the examples, eg. to edit
+them or to compare. The vehicles, the traffic lights, the density, the
+counts and the selection show either way. It is on by default. The
+examples have no real coordinates, so the checkbox is disabled for them
+and for other diagrams. With the map, roads and junctions cannot be
+clicked (selecting by dragging a rectangle works), turn it off to edit
+them.
+
+The map is a live layer of tiles behind the transparent canvas of draw.io
+(`js/map.js`), placed again at each change of the zoom, the scroll and the
+pan, also during the zoom preview of draw.io, so that it stays on the roads
+and sharp at all zoom levels: it uses the tiles of the zoom level whose
+size is nearest to the scale, up to zoom 19, which are scaled by 0.84 to
+1.19. In dark mode the tiles are inverted. Towns are built in Web Mercator
+like the tiles, with one scale per town, and the text with the attribution
+keeps the Mercator meters of the origin of the diagram and the scale
+(`mercator`), so that saved towns get their map too.
+
+The tiles come from tile.openstreetmap.org, which allows light use under
+its [tile usage policy](https://operations.osmfoundation.org/policies/tiles/):
+the map shows "© OpenStreetMap contributors" with a link, only the tiles in
+view are loaded, nothing is loaded ahead, the tiles of the last zoom level
+stay only until the new ones are loaded, and the page keeps no tiles, the
+browser caches them as their HTTP headers allow. For more than light use,
+or another style, set another tile server in the URL: `tiles=<URL>` with
+`{z}`, `{x}` and `{y}` (and `{s}` for `a`), `tileMaxZoom=<zoom>` (19) and
+`tileAttribution=<text>` for the credit the server asks for, which the map
+shows after the one of OpenStreetMap, eg.
+`?tiles=https://tiles.example.org/{z}/{x}/{y}.png&tileAttribution=Example%20Maps`.
+The small map of the panel uses the same tiles.
+
 The URL of the page has the town: `?city=Zürich` looks the name up and
 opens the first match, `?osm=relation/1682248` opens that place of
 OpenStreetMap (`node/`, `way/` or `relation/`), which links use with the
@@ -185,7 +222,10 @@ or `bbox=<south>,<west>,<north>,<east>` the section, eg.
 Errors are shown in the panel, which then opens the Small example.
 
 The network is built like `tools/net2drawio.py` builds the examples, in
-units of 1 m around the center of the town with north at the top:
+Web Mercator like the map tiles, scaled by the cosine of the latitude of
+the center of the town so that 1 unit is 1 m there (lengths 10 km to the
+north or south are about 0.2 % off at the latitude of Zurich), with north
+at the top, and with lanes 3.5 m wide like on the streets of the map:
 
 - Junctions are the nodes where three or more roads meet and the ends of
   roads. A node that only joins two roads, with one way in and one way
@@ -208,10 +248,10 @@ units of 1 m around the center of the town with north at the top:
   connected to them. Junctions of three or more roads with
   `highway=traffic_signals` on them or on a road to them within 45 m are
   traffic lights.
-- Junctions joined by roads shorter than 20 m become one junction, at most
-  40 m wide, eg. the crossings of dual carriageways, and two one-way roads
-  in opposite directions between the same junctions that run side by side
-  one road in both directions.
+- Junctions joined by roads shorter than 20 m become one junction in their
+  middle, at most 40 m wide, eg. the crossings of dual carriageways, and
+  their roads keep their old ends as waypoints. The carriageways of dual
+  roads stay one-way roads, so that cars drive on them on the map.
 - Roads are cut where they leave the town, 25 m outside the boundary so
   that roads along it stay whole, or the section, and the cut ends are
   gates. Parts that are not connected to the rest with fewer roads than 1 %
@@ -224,17 +264,27 @@ units of 1 m around the center of the town with north at the top:
 
 Traffic drives on the right in all towns, and turn lanes are not loaded.
 
-Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density:
-Zug (all streets) has 408 junctions, Bern (all streets) 1,962 junctions
-and 158 traffic lights, and Zurich (all streets) 3,791 junctions and 5,517
-roads, which open in 3.4 s and run at 14 frames per second with 1,000
-cars. Sections of Los Angeles (main and collector roads) with 3,131
-junctions and 4,941 roads open in 3.6 s at 11 frames per second, with
-4,679 junctions and 7,316 roads in 4.9 s at 7, and with 7,409 junctions
-and 11,548 roads in 7.9 s at 4, which is why the limits are 4,000
-junctions and 6,000 roads. All of Los Angeles is not loaded: its main
-roads alone have 7,899 junctions and 12,565 roads. The towns are built in
-0.1 s (Zurich) to 1.5 s (Los Angeles) after loading.
+Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density,
+in frames per second with the map and without:
+
+| Town | Junctions | Roads | Cars | Opens in | With map | Without |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zug, all streets | 409 | 519 | 120 | 0.4 s | 60 | 60 |
+| Zurich, main and collector | 928 | 1,462 | 500 | 1.1 s | 58 | 30 |
+| Zurich, all streets | 3,864 | 5,719 | 1,000 | 3.1 s | 38 | 12 |
+| Los Angeles, 14 by 20 km, main and collector | 3,238 | 5,139 | 600 | 4.1 s | 23 | 8 |
+| Los Angeles, 15 by 21 km, main and collector | 3,722 | 5,872 | 800 | 4.6 s | 18 | 6.5 |
+
+Bern (all streets) has 2,002 junctions and 161 traffic lights. Without
+the map, sections of Los Angeles with 4,679 junctions and 7,316 roads ran
+at 7 frames per second and with 7,409 junctions and 11,548 roads at 4 and
+took 7.9 s to open, which is why the limits are 4,000 junctions and 6,000
+roads. All of Los Angeles is not loaded: its main roads alone have 7,899
+junctions and 12,565 roads. The towns are built in 0.1 s (Zurich) to
+1.5 s (Los Angeles) after loading. The map stays on the junctions within
+a pixel at zoom levels from 3 % to 1,200 % and during the zoom preview
+(median 0.2 to 0.6 pixels in Zug and Zurich), except for junctions that
+were made of several close crossings, which are up to 10 m off theirs.
 
 `tools/osm2drawio.js` builds the same network in Node from saved answers of
 Nominatim and Overpass, eg. for new examples or tests:
@@ -283,11 +333,13 @@ The browser loads all data directly, as all services send
   overpass.openstreetmap.fr, which answers fast with data from August 2026
   but whose wiki page says it stopped in 2022 and which refuses headless
   browsers as not "white-listed".
-- **Tiles** of the small map come from tile.openstreetmap.org, a few per
-  town, under its [tile policy](https://operations.osmfoundation.org/policies/tiles/).
+- **Tiles** of the small map and the map background come from
+  tile.openstreetmap.org or the tile server of `tiles`, see
+  [Map Background](#map-background).
 - The data is © OpenStreetMap contributors under the
-  [ODbL](https://www.openstreetmap.org/copyright). The panel, the map and
-  the text in each loaded network say so.
+  [ODbL](https://www.openstreetmap.org/copyright). The panel, the small
+  map, the corner of the diagram and the text in each loaded network say
+  so.
 
 [anvaka/city-roads](https://github.com/anvaka/city-roads) also loads whole
 cities in the browser: it looks the name up with Nominatim, queries
@@ -326,8 +378,8 @@ then writes its own debug messages and has a Develop menu.
 
 - `index.html`, `css/app.css` and `js/app.js` are the page. draw.io runs in
   an iframe on the same origin, served from the `drawio` submodule. The page
-  gets the editor with `Draw.loadPlugin` and loads `js/roads.js` and
-  `js/simulation.js` into the window of the editor. The editor starts in the
+  gets the editor with `Draw.loadPlugin` and loads `js/roads.js`,
+  `js/simulation.js` and `js/map.js` into the window of the editor. The editor starts in the
   Simple theme with the shapes and format panels closed (`ui=simple`,
   `sidebar=0`, `format=0`), and the View menu opens them. It follows the
   dark mode of the system (`dark=auto`), like the page. The tab on the edge
@@ -345,6 +397,8 @@ then writes its own debug messages and has a Develop menu.
   and builds their networks as draw.io files, which the page opens like the
   examples (see [Loading Your Town](#loading-your-town)). It runs in the
   page, not in the editor, and in Node for `tools/osm2drawio.js`.
+- `js/map.js` runs in the editor and shows the map and the notice of
+  OpenStreetMap behind and on towns (see [Map Background](#map-background)).
 - `js/simulation.js` builds the network from the cells of the current page,
   runs the model and paints the vehicles, the density of the lanes and the
   traffic lights into the overlay pane of the graph. Each vehicle is one
