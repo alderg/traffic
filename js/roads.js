@@ -1026,6 +1026,71 @@ window.TrafficRoads = function(ui)
 		}
 	}, 'update junctions'));
 
+	/**
+	 * Returns the function of the Shapes panel that makes a road with the
+	 * given style and length between two free ends.
+	 */
+	function createRoadEntry(sidebar, style, width, title)
+	{
+		return function()
+		{
+			var height = roads.getRoadWidth(graph.stylesheet.getCellStyle(style, {}));
+			var cell = new mxCell('', new mxGeometry(0, 0, width, height), style);
+			cell.geometry.setTerminalPoint(new mxPoint(0, height / 2), true);
+			cell.geometry.setTerminalPoint(new mxPoint(width, height / 2), false);
+			cell.geometry.relative = true;
+			cell.edge = true;
+
+			return sidebar.createEdgeTemplateFromCells([cell], width, height, title);
+		};
+	};
+
+	// The Shapes panel has palettes of junctions and roads instead of the
+	// shape libraries of draw.io
+	Sidebar.prototype.init = function()
+	{
+		this.sidebarTitles = true;
+		this.thumbWidth = 72;
+		this.thumbHeight = 36;
+
+		this.addPaletteFunctions('junctions', 'Junctions', true,
+		[
+			this.createVertexTemplateEntry(crossingStyle, 24, 24, '', 'Crossing', null, null, 'crossing'),
+			this.createVertexTemplateEntry(lightStyle, 24, 24, '', 'Traffic light', null, null, 'traffic light'),
+			this.createVertexTemplateEntry(roundaboutStyle, 60, 60, '', 'Roundabout', null, null, 'roundabout')
+		]);
+
+		this.addPaletteFunctions('roads', 'Roads', true,
+		[
+			createRoadEntry(this, getRoadStyle(1, false), 100, 'Two-way, 1+1 lanes'),
+			createRoadEntry(this, getRoadStyle(2, false), 100, 'Two-way, 2+2 lanes'),
+			createRoadEntry(this, getRoadStyle(1, true), 100, 'One-way, 1 lane'),
+			createRoadEntry(this, getRoadStyle(2, true), 100, 'One-way, 2 lanes'),
+			createRoadEntry(this, getRoadStyle(3, true), 100, 'One-way, 3 lanes')
+		]);
+	};
+
+	// No libraries of draw.io to add
+	Sidebar.prototype.createMoreShapes = function()
+	{
+		var div = document.createElement('div');
+		div.style.display = 'none';
+
+		return div;
+	};
+
+	if (ui.sidebar != null)
+	{
+		var footers = ui.sidebar.container.getElementsByClassName('geSidebarFooter');
+
+		for (var i = 0; i < footers.length; i++)
+		{
+			footers[i].style.display = 'none';
+		}
+
+		ui.sidebar.refresh();
+	}
+
 	// Junctions in the shape picker of the hover arrows and connectors
 	ui.defaultShapePickerEntries = [
 		{style: crossingStyle, width: 24, height: 24, keepStyle: true},
