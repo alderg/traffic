@@ -435,6 +435,13 @@ then writes its own debug messages and has a Develop menu.
   `sidebar=0`, `format=0`), and the View menu opens them. It follows the
   dark mode of the system (`dark=auto`), like the page. The tab on the edge
   of the panel of the page hides it.
+- The favicon shows whether the simulation runs: a traffic light with the
+  green lamp lit while the cars drive and the red one while they are
+  paused (`img/favicon-running.svg` and `img/favicon-paused.svg`, with PNGs
+  of 32 pixels for browsers without SVG favicons). `js/app.js` switches it
+  with the state that the simulation reports, like the Start and Pause
+  button, so that it follows every start and stop. The editor in its frame
+  keeps its icon to itself.
 - `js/roads.js` registers the road and roundabout shapes, which paint
   asphalt with edge lines, lane dividers, center lines, arrows on one-way
   roads and stop and give-way lines, and replaces the shape libraries with
@@ -492,8 +499,8 @@ then writes its own debug messages and has a Develop menu.
   NODE_PATH=/tmp/smoke/node_modules node tools/smoke-test.js http://localhost:8000/index.html
   ```
 
-- `.github/workflows/pages.yml` publishes the page and
-  `drawio/src/main/webapp` to GitHub Pages on each push to `main` and when
+- `.github/workflows/pages.yml` publishes the page (`index.html`, `css`,
+  `img`, `js` and `data`) and `drawio/src/main/webapp` to GitHub Pages on each push to `main` and when
   it is started (`workflow_dispatch`), eg. by the update of draw.io.
 
 ## License

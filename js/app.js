@@ -47,6 +47,7 @@
 	var map = null;
 	var legendBar = null;
 	var legendStops = null;
+	var faviconRunning = false;
 	var tiles = getTiles();
 	var vehicleSection = document.getElementById('vehicle');
 	var vehicleRows = vehicleSection.querySelector('tbody');
@@ -390,6 +391,7 @@
 	{
 		stats.textContent = lines.join('\n');
 		startButton.textContent = (running) ? 'Pause' : 'Start';
+		setFavicon(running);
 
 		// The timing of a light follows from the network after changes and
 		// the statistics of the selection change while cars drive
@@ -400,6 +402,23 @@
 
 		updateVehicle();
 		updateLegend();
+	};
+
+	/**
+	 * Shows the state of the simulation in the favicon of the page, which the
+	 * editor in its frame does not change: a traffic light with the green lamp
+	 * lit while the cars drive and the red one while they are paused. The SVG
+	 * comes first in browsers that show it, else the PNG of 32 pixels.
+	 */
+	function setFavicon(running)
+	{
+		if (running !== faviconRunning)
+		{
+			var state = (running) ? 'running' : 'paused';
+			faviconRunning = running;
+			document.getElementById('favicon-png').href = 'img/favicon-' + state + '.png';
+			document.getElementById('favicon-svg').href = 'img/favicon-' + state + '.svg';
+		}
 	};
 
 	/**

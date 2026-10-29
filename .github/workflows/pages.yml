@@ -26,7 +26,7 @@ jobs:
       - name: Assemble the site
         run: |
           mkdir -p _site/drawio/src/main
-          cp -R index.html css js data _site/
+          cp -R index.html css img js data _site/
           cp -R drawio/src/main/webapp _site/drawio/src/main/webapp
           rm -rf _site/drawio/src/main/webapp/WEB-INF
       - uses: actions/configure-pages@v6
