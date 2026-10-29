@@ -687,8 +687,10 @@ window.TrafficSimulation = function(ui, listener)
 		var cells = this.cells[0];
 		var vm = this.getTopSpeed(v);
 
+		// Also not beside an oncoming car, which getOncoming does not see
 		if (i - v.len < 1 || cells[i - v.len] != null || this.getTopSpeed(w) >= vm ||
-			j - w.len - i >= Math.min(v.v + 1, vm) || j + 1 + v.len > this.out || !this.isFree(0, j + 1 + v.len, 1 + v.len))
+			j - w.len - i >= Math.min(v.v + 1, vm) || j + 1 + v.len > this.out || !this.isFree(0, j + 1 + v.len, 1 + v.len) ||
+			this.opposite.cells[0][this.out - i] != null)
 		{
 			return false;
 		}
