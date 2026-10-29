@@ -306,6 +306,34 @@ var TrafficOsm = (function()
 	};
 
 	/**
+	 * Returns the place of the given result of a Nominatim lookup with its
+	 * boundary as rings, or the radius of its kind without one, as the page
+	 * and tools/osm2drawio.js load it.
+	 */
+	function getLookupPlace(r)
+	{
+		var place = getNominatimPlace(r);
+		var g = r.geojson;
+		place.rings = null;
+
+		if (g != null && g.type == 'Polygon')
+		{
+			place.rings = g.coordinates;
+		}
+		else if (g != null && g.type == 'MultiPolygon')
+		{
+			place.rings = [].concat.apply([], g.coordinates);
+		}
+
+		if (place.rings == null)
+		{
+			place.radius = radii[place.kind] || 2000;
+		}
+
+		return place;
+	};
+
+	/**
 	 * Searches towns with Nominatim and returns their places, the most
 	 * important first. With cached, the results of the same text are reused,
 	 * eg. for the town in a link.
@@ -393,24 +421,7 @@ var TrafficOsm = (function()
 					throw new Error('OpenStreetMap has no place ' + key + '.');
 				}
 
-				var place = getNominatimPlace(results[0]);
-				var g = results[0].geojson;
-				place.rings = null;
-
-				if (g != null && g.type == 'Polygon')
-				{
-					place.rings = g.coordinates;
-				}
-				else if (g != null && g.type == 'MultiPolygon')
-				{
-					place.rings = [].concat.apply([], g.coordinates);
-				}
-
-				if (place.rings == null)
-				{
-					place.radius = radii[place.kind] || 2000;
-				}
-
+				var place = getLookupPlace(results[0]);
 				place.date = new Date().toISOString();
 				cachePut('places', key, place);
 
@@ -2532,7 +2543,7 @@ var TrafficOsm = (function()
 		lookup: lookup, estimate: estimate, load: load, findCached: findCached, build: build, compact: compact, getBounds: getBounds,
 		getArea: getArea, getQuery: getQuery, getSectionText: getSectionText, parseSection: parseSection,
 		createProjection: createProjection, getAttributes: getAttributes, parseSpeed: parseSpeed,
-		parsePopulation: parsePopulation};
+		parsePopulation: parsePopulation, getLookupPlace: getLookupPlace};
 })();
 
 if (typeof module == 'object' && module.exports != null)

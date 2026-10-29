@@ -39,15 +39,16 @@ function main(args)
 		}
 	}
 
-	var r = JSON.parse(fs.readFileSync(files[0], 'utf8'))[0];
-	var g = r.geojson || {};
-	var b = r.boundingbox;
-	var place = {key: r.osm_type + '/' + r.osm_id, name: r.name, kind: r.addresstype, lat: parseFloat(r.lat),
-		lon: parseFloat(r.lon), population: osm.parsePopulation((r.extratags || {}).population),
-		bbox: [parseFloat(b[0]), parseFloat(b[2]), parseFloat(b[1]), parseFloat(b[3])],
-		rings: (g.type == 'Polygon') ? g.coordinates : ((g.type == 'MultiPolygon') ?
-			[].concat.apply([], g.coordinates) : null)};
-	place.radius = (place.rings == null) ? 2000 : null;
+	if (osm.levels.indexOf(options.roads) < 0)
+	{
+		console.error('--roads is one of ' + osm.levels.join(', '));
+		process.exitCode = 1;
+
+		return;
+	}
+
+	// The place as the page loads it, with the radius of its kind without limits
+	var place = osm.getLookupPlace(JSON.parse(fs.readFileSync(files[0], 'utf8'))[0]);
 	var section = osm.parseSection(options.circle, options.bbox);
 
 	if (options.query)
@@ -69,6 +70,11 @@ function main(args)
 	{
 		console.log('Larger than ' + result.limits.junctions + ' junctions or ' + result.limits.roads +
 			' roads, choose a section or fewer roads.');
+		process.exitCode = 1;
+	}
+	else if (result.empty)
+	{
+		console.log('No roads of this level in the town or section.');
 		process.exitCode = 1;
 	}
 	else if (result.xml != null)
