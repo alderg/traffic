@@ -7,10 +7,12 @@
  * js/simulation.js are loaded into the frame and attached to the editor, and
  * the controls of this page drive the simulation.
  *
- * Debug output, with ?dev=1 or ?test=1 in the URL or the checkbox, passes
- * test=1 to the editor, which then logs its errors and debug messages, logs
- * all errors of the page, the editor and the simulation with their stack
- * and makes the simulation write its state to the console once a second.
+ * Debug output is on unless ?dev=0 is in the URL or the checkbox is cleared.
+ * It logs all errors of the page, the editor and the simulation with their
+ * stack, also the errors that draw.io catches and shows, and makes the
+ * simulation write its state to the console once a second. ?dev=1 or
+ * ?test=1 also passes test=1 to the editor for its own debug messages and
+ * the Develop menu.
  */
 (function()
 {
@@ -21,33 +23,44 @@
 		{label: 'Portland (4.1 MB)', name: 'portland'}];
 	var frame = document.getElementById('editor');
 	var params = new URLSearchParams(window.location.search);
-	var debug = params.get('dev') == '1' || params.get('test') == '1';
-	frame.src = frame.getAttribute('data-src') + ((debug) ? '&test=1' : '');
+	var debug = params.get('dev') != '0' && params.get('test') != '0';
+	var testMode = params.get('dev') == '1' || params.get('test') == '1';
+	frame.src = frame.getAttribute('data-src') + ((testMode) ? '&test=1' : '');
 	var startButton = document.getElementById('start');
 	var stats = document.getElementById('stats');
 	var ui = null;
 	var sim = null;
 	var roads = null;
 	var updateCycle = null;
+	var logged = new WeakSet();
 
 	/**
 	 * Logs the given error with its stack and the given context if debug
-	 * output is on, once for errors that are thrown again.
+	 * output is on, once for errors that are thrown again. Errors without a
+	 * stack, eg. responses of requests, are logged with the given stack where
+	 * they were handled.
 	 */
-	function logError(e, context)
+	function logError(e, context, handledAt)
 	{
-		if (debug && e != null && !e.trafficLogged)
+		if (debug && e != null && !logged.has(e))
 		{
-			try
+			if (typeof e == 'object')
 			{
-				e.trafficLogged = true;
-			}
-			catch (ex)
-			{
-				// ignore
+				logged.add(e);
 			}
 
-			console.error('Traffic error' + ((context != null) ? ' in ' + context : '') + ':', e);
+			var text = 'Traffic error' + ((context != null) ? ' in ' + context : '') + ': ';
+
+			if (typeof e.stack == 'string' && e.stack.length > 0)
+			{
+				// The stack of Chrome starts with the message, the others do not
+				console.error(text + ((e.message != null && e.stack.indexOf(e.message) < 0) ?
+					e.name + ': ' + e.message + '\n' : '') + e.stack);
+			}
+			else
+			{
+				console.error(text, e, (handledAt != null) ? '\n' + handledAt : '');
+			}
 		}
 	};
 
@@ -77,32 +90,63 @@
 	});
 
 	/**
-	 * Turns the debug output on or off, in the editor, the simulation and the
-	 * URL of this page, so that it stays on after a reload.
+	 * Logs the errors that draw.io catches and shows in a dialog with their
+	 * stack. For uncaught errors, window.onerror of draw.io passes only the
+	 * message, so the error comes from the error event that is dispatched.
+	 */
+	function logHandledErrors()
+	{
+		var handleError = ui.handleError;
+
+		ui.handleError = function(resp, title)
+		{
+			if (debug && resp != null)
+			{
+				var e = (resp.error != null) ? resp.error : resp;
+				var evt = frame.contentWindow.event;
+
+				if (e.stack == null && evt != null && evt.type == 'error' && evt.error != null)
+				{
+					e = evt.error;
+				}
+
+				logError(e, 'editor, EditorUi.handleError' + ((title != null) ? ' (' + title + ')' : ''),
+					(e.stack == null) ? new Error('Handled at').stack : null);
+			}
+
+			return handleError.apply(this, arguments);
+		};
+	};
+
+	/**
+	 * Turns the debug output of this page and the simulation on or off and
+	 * keeps it in the URL of this page for reloads.
 	 */
 	function setDebug(value)
 	{
-		var win = frame.contentWindow;
 		debug = value;
-		params['delete']('test');
 
 		if (value)
 		{
-			params.set('dev', '1');
+			if (params.get('dev') == '0')
+			{
+				params['delete']('dev');
+			}
+
+			if (params.get('test') == '0')
+			{
+				params['delete']('test');
+			}
 		}
 		else
 		{
-			params['delete']('dev');
+			params['delete']('test');
+			params.set('dev', '0');
 		}
 
 		var query = params.toString();
 		window.history.replaceState(null, '', window.location.pathname +
 			((query.length > 0) ? '?' + query : '') + window.location.hash);
-
-		if (win != null && win.urlParams != null)
-		{
-			win.urlParams['test'] = (value) ? '1' : '0';
-		}
 
 		if (sim != null)
 		{
@@ -182,6 +226,7 @@
 		loadScripts(['js/roads.js', 'js/simulation.js'], function()
 		{
 			ui = editorUi;
+			logHandledErrors();
 			win.TrafficRoads.onError = logError;
 			roads = win.TrafficRoads(ui);
 			keepFormatPanelClosed();
@@ -596,7 +641,6 @@
 			openFile(xml, name + '.drawio');
 		})['catch'](function(e)
 		{
-			logError(e, 'example ' + name);
 			ui.handleError(e);
 		});
 	};
@@ -701,7 +745,7 @@
 
 	if (debug)
 	{
-		console.info('Traffic debug output on, editor with test=1');
+		console.info('Traffic debug output on' + ((testMode) ? ', editor with test=1' : ''));
 	}
 
 	initPanelToggle();

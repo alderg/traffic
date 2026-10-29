@@ -82,13 +82,18 @@ Then open http://localhost:8000.
 
 ## Debugging
 
-`?dev=1` (or `?test=1`) in the URL or the Debug output checkbox in the panel
-turns on debug output: the editor gets `test=1` and logs its errors and
-debug messages, all errors of the page, the editor and the simulation are
-logged with their stack, and the simulation writes the cars, the links and
-junctions with cars and the events of the last second (spawns, lane
-changes, crossings, roundabouts, arrivals, reroutes, phases) to the console
-once a second. The checkbox keeps the setting in the URL.
+Debug output is on unless the URL has `?dev=0` or the Debug output
+checkbox in the panel is cleared, which keeps the setting in the URL. All
+errors of the page, the editor and the simulation are logged with their
+stack, also the errors that draw.io catches and shows in a dialog
+(`EditorUi.handleError`, also for uncaught errors). Once a second, the
+simulation writes a summary (cars driving, moving and standing, average
+speed, steps and time per step), the links and junctions with cars, the
+cars that stand for 10 seconds or more with their place and the events of
+the last second (spawns, lane changes, crossings, roundabouts, arrivals,
+reroutes, phases) to the console, and a warning with the junctions when no
+car moves. `?dev=1` or `?test=1` also passes `test=1` to the editor, which
+then writes its own debug messages and has a Develop menu.
 
 ## How It Works
 

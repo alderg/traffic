@@ -35,10 +35,10 @@
  * and look for another route after waiting at a junction.
  *
  * Cars, traffic lights and the density of the lanes are painted into the
- * overlay pane. With debug output, the state of the cars, links and
- * junctions and the events of the last second (spawns, lane changes,
- * crossings, roundabouts, arrivals, reroutes, phases) go to the console
- * once a second. The simulation never changes the diagram, only importFile
+ * overlay pane. With debug output, a summary, the links and junctions with
+ * cars, the cars that stand longest and the events of the last second
+ * (spawns, lane changes, crossings, roundabouts, arrivals, reroutes,
+ * phases) go to the console once a second, with a warning if no car moves. The simulation never changes the diagram, only importFile
  * inserts cells. This script runs in the window of the editor after
  * js/roads.js, whose lane geometry it uses: TrafficSimulation(ui, listener)
  * attaches the simulation to the graph of the given EditorUi and calls
@@ -82,6 +82,8 @@ window.TrafficSimulation = function(ui, listener)
 	var debug = false;
 	var events = [];
 	var lastDebug = 0;
+	var debugSteps = 0;
+	var debugTime = 0;
 
 	/**
 	 * Records the given event of the given car with the given data for the
@@ -1155,6 +1157,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.cell = 0;
 		this.v = 0;
 		this.wait = 0;
+		this.stopped = 0;
 		this.driven = 0;
 		this.prevLink = null;
 		this.prevRing = null;
@@ -1857,6 +1860,7 @@ window.TrafficSimulation = function(ui, listener)
 
 		sim.active.forEach(function(v)
 		{
+			v.stopped = (v.v == 0 && v.transit == null) ? v.stopped + 1 : 0;
 			v.prevLink = v.link;
 			v.prevRing = v.ring;
 			v.prevTransit = v.transit;
@@ -2478,6 +2482,9 @@ window.TrafficSimulation = function(ui, listener)
 				steps++;
 			}
 
+			debugSteps += steps;
+			debugTime += window.performance.now() - start;
+
 			// Drops steps that the browser cannot keep up with
 			if (now - lastStep >= interval)
 			{
@@ -2508,13 +2515,41 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Writes the cars, the links and junctions with cars and the events since
-	 * the last call to the console.
+	 * Returns where the given car is for the debug output.
+	 */
+	function getPlace(v)
+	{
+		return (v.transit != null) ? 'crossing ' + v.transit.link.from.id + ' to ' + v.transit.link.key +
+			' lane ' + v.transit.lane : ((v.ring != null) ? 'roundabout ' + v.ring.id + ' lane ' +
+			v.ringLane + ' cell ' + v.cell : 'link ' + v.link.key + ' lane ' + v.lane + ' cell ' +
+			v.cell + '/' + v.link.out);
+	};
+
+	/**
+	 * Writes a summary, the links and junctions with cars, the cars that
+	 * stand longest and the events since the last call to the console, and
+	 * a warning if no car moves.
 	 */
 	function logState()
 	{
 		var links = [];
 		var junctions = [];
+		var stopped = [];
+		var moving = 0;
+		var speed = 0;
+
+		sim.active.forEach(function(v)
+		{
+			if (v.v > 0 || v.transit != null)
+			{
+				moving++;
+				speed += (v.transit != null) ? 1 : v.v;
+			}
+			else if (v.stopped >= 10)
+			{
+				stopped.push(v);
+			}
+		});
 
 		for (var i = 0; i < net.links.length && links.length < 500; i++)
 		{
@@ -2546,15 +2581,57 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		console.groupCollapsed('Traffic ' + formatTime(sim.time) + ': ' + sim.active.size + ' driving, ' +
-			sim.queued + ' waiting, ' + sim.arrived + ' arrived, ' + events.length + ' events');
+		stopped.sort(function(a, b)
+		{
+			return b.stopped - a.stopped;
+		});
+
+		console.groupCollapsed('Traffic ' + formatTime(sim.time) + ': ' + sim.active.size + ' driving (' +
+			moving + ' moving), ' + sim.queued + ' waiting, ' + sim.arrived + ' arrived, ' +
+			events.length + ' events');
+		console.log('Summary', {time: sim.time, driving: sim.active.size, moving: moving,
+			standing: sim.active.size - moving, standing10s: stopped.length, waitingToStart: sim.queued,
+			arrived: sim.arrived, reroutes: sim.replanned, kmh: (moving > 0) ?
+			Math.round(3.6 * cellLength * speed / sim.active.size) : 0,
+			steps: debugSteps, msPerStep: (debugSteps > 0) ? Math.round(100 * debugTime / debugSteps) / 100 : 0});
 		console.log('Network', {junctions: net.crossings.length, links: net.links.length, lanes: net.lanes,
 			cells: net.cells, running: running, speed: config.speed});
 		console.table(links);
 		console.table(junctions);
+		console.log('Cars standing for 10 s or more');
+		console.table(stopped.slice(0, 50).map(function(v)
+		{
+			var next = v.next();
+
+			return {car: v.id, standing: v.stopped, age: sim.time - v.start, place: getPlace(v),
+				next: (next != null) ? next.key : '', dest: v.dest.id};
+		}));
 		console.table(events.slice(0, 1000));
 		console.groupEnd();
+
+		// No car moved in the last step, and the oldest stands for a while
+		if (running && sim.active.size > 0 && moving == 0 && stopped.length > 0 &&
+			stopped[0].stopped >= 30)
+		{
+			var places = [];
+
+			for (var i = 0; i < stopped.length && places.length < 10; i++)
+			{
+				var id = stopped[i].getJunction().id;
+
+				if (places.indexOf(id) < 0)
+				{
+					places.push(id);
+				}
+			}
+
+			console.warn('Traffic ' + formatTime(sim.time) + ': no car moves, gridlock at junctions ' +
+				places.join(', '));
+		}
+
 		events = [];
+		debugSteps = 0;
+		debugTime = 0;
 	};
 
 	function schedule()
