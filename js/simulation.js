@@ -19,6 +19,10 @@
  * there is space, in each case only if no car is close behind there. With
  * passEitherSide in the config (US), they pass on either side, where there
  * is more space, and do not go back to the right.
+ * With leftHand in the config, left-hand traffic, everything here is
+ * mirrored: the lanes of each direction from right to left (see
+ * getModelLanes) and left and right turns swapped (getTurn), so that cars
+ * keep left and pass on the right, and rings turn clockwise.
  *
  * Crossings let as many cars pass per step as their widest incoming road has
  * lanes and take the incoming links in turns. Cars only pass from lanes that
@@ -254,7 +258,7 @@ window.TrafficSimulation = function(ui, listener)
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1, passEitherSide: false, passOncoming: true, roads: true, lights: false, vehicles: true,
 		mapBackground: false, center: false, adaptive: true, colors: 'blueRed', trips: 'random',
-		through: defaultThroughShare, zones: false, roadOpacity: 1};
+		through: defaultThroughShare, zones: false, roadOpacity: 1, units: 'kmh', leftHand: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -1922,6 +1926,18 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
+	 * Returns the given lanes of a direction from left to right for the
+	 * model, which drives on the right: with left-hand traffic, which is its
+	 * mirror image, from right to left, with left and right turns swapped,
+	 * so that cars keep left, pass on the right and turn right from the
+	 * lanes next to the middle of the road. The offsets stay as drawn.
+	 */
+	function getModelLanes(lanes)
+	{
+		return (config.leftHand) ? roads.mirrorLanes(lanes) : lanes;
+	};
+
+	/**
 	 * Returns the turn from the given link to the given next link: l for
 	 * left and U-turns, r for right and s for straight ahead within 30
 	 * degrees (y down).
@@ -1931,6 +1947,9 @@ window.TrafficSimulation = function(ui, listener)
 		var a = getDirection(link.points, false);
 		var b = getDirection(next.points, true);
 		var angle = Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+
+		// The model drives on the right, left-hand traffic is its mirror image
+		angle = (config.leftHand) ? -angle : angle;
 
 		return (angle < -Math.PI / 6 || angle > 5 * Math.PI / 6) ? 'l' : ((angle > Math.PI / 6) ? 'r' : 's');
 	};
@@ -2083,8 +2102,9 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Roundabout: a ring of lanes of cells around the center at the given
-	 * radii from the outside in, where traffic circulates counterclockwise.
-	 * Cell i is at the angle -2 pi i / n (y down) in all lanes. Cars enter
+	 * radii from the outside in, where traffic circulates counterclockwise,
+	 * or clockwise with left-hand traffic (turn -1). Cell i is at the angle
+	 * -turn 2 pi i / n (y down) in all lanes. Cars enter
 	 * the outer lane from the end of their link when it is free up to
 	 * ringSpeed cells before the entry, move inward for exits that are far
 	 * away and back out before their exit, and leave from the outer lane at
@@ -2095,6 +2115,7 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		Crossing.call(this, id, x, y, 0);
 		this.radii = radii;
+		this.turn = (config.leftHand) ? -1 : 1;
 		this.size = Math.max(6, Math.round(2 * Math.PI * radii[0] / cellLength));
 		this.rings = [];
 		this.vehicles = 0;
@@ -2113,7 +2134,7 @@ window.TrafficSimulation = function(ui, listener)
 		var n = this.size;
 		var a = Math.atan2(pt.y - this.y, pt.x - this.x);
 
-		return ((Math.round(-a * n / (2 * Math.PI)) % n) + n) % n;
+		return ((Math.round(-this.turn * a * n / (2 * Math.PI)) % n) + n) % n;
 	};
 
 	/**
@@ -2122,7 +2143,7 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	Roundabout.prototype.getPoint = function(lane, cell, radius)
 	{
-		var a = -2 * Math.PI * cell / this.size;
+		var a = -this.turn * 2 * Math.PI * cell / this.size;
 		var r = (radius != null) ? radius : this.radii[lane];
 
 		return new mxPoint(this.x + r * Math.cos(a), this.y + r * Math.sin(a));
@@ -2133,9 +2154,9 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	Roundabout.prototype.getTangent = function(cell)
 	{
-		var a = -2 * Math.PI * cell / this.size;
+		var a = -this.turn * 2 * Math.PI * cell / this.size;
 
-		return new mxPoint(Math.sin(a), -Math.cos(a));
+		return new mxPoint(this.turn * Math.sin(a), -this.turn * Math.cos(a));
 	};
 
 	/**
@@ -3310,8 +3331,8 @@ window.TrafficSimulation = function(ui, listener)
 					{
 						var plan = roads.getLanePlan(state.style);
 						var lw = roads.getLaneWidth(state.style);
-						var forward = roads.getTravelLanes(plan, 1, lw);
-						var backward = roads.getTravelLanes(plan, -1, lw);
+						var forward = getModelLanes(roads.getTravelLanes(plan, 1, lw));
+						var backward = getModelLanes(roads.getTravelLanes(plan, -1, lw));
 						var limit = getSpeedLimit(state.style);
 						var roadClass = getRoadClass(state.style, Math.max(forward.length, backward.length));
 
@@ -3455,7 +3476,7 @@ window.TrafficSimulation = function(ui, listener)
 	function getRoadClass(style, lanes)
 	{
 		var highway = mxUtils.getValue(style, 'highway', null);
-		var kmh = parseFloat(mxUtils.getValue(style, 'maxSpeed', '0'));
+		var kmh = roads.getMaxSpeed(style);
 
 		return (highway != null) ? (roadClasses[highway] || 0) :
 			((kmh > 0 && kmh <= minorKmh && lanes <= 1) ? 2 : 0);
@@ -3479,12 +3500,12 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Returns the speed limit in cells per step of a road with the given
-	 * style, from maxSpeed in km/h, at least one cell per step, or 0 for
-	 * none.
+	 * style, from maxSpeed in km/h or mph, at least one cell per step, or 0
+	 * for none.
 	 */
 	function getSpeedLimit(style)
 	{
-		var kmh = parseFloat(mxUtils.getValue(style, 'maxSpeed', '0'));
+		var kmh = roads.getMaxSpeed(style);
 
 		return (kmh > 0) ? Math.max(1, Math.round(kmh / (3.6 * cellLength))) : 0;
 	};
@@ -4612,11 +4633,12 @@ window.TrafficSimulation = function(ui, listener)
 		var x = p1.x - dx;
 		var y = p1.y - dy;
 
-		// Bar across the lanes, head on the right of the road before it
+		// Bar across the lanes, head on the driving side of the road before it
 		var bar = createNode('line', overlay.bars, {x1: x - dy * a, y1: y + dx * a,
 			x2: x - dy * b, y2: y + dx * b, 'stroke-width': getSize(0.3, 3)});
-		var signal = {phase: phase, bar: bar, x: p1.x - dx * 9 - dy * (b + 6),
-			y: p1.y - dy * 9 + dx * (b + 6), lamps: []};
+		var side = (config.leftHand) ? a - 6 : b + 6;
+		var signal = {phase: phase, bar: bar, x: p1.x - dx * 9 - dy * side,
+			y: p1.y - dy * 9 + dx * side, lamps: []};
 		signal.head = createNode('g', overlay.heads, {transform: 'translate(' +
 			signal.x + ',' + signal.y + ') scale(' + getHeadScale() + ')'});
 		createNode('rect', signal.head, {x: -3, y: -7, width: 6, height: 14, rx: 1.5,
@@ -5019,12 +5041,13 @@ window.TrafficSimulation = function(ui, listener)
 			var cells = (v.cell - v.prevCell + n) % n;
 			setRingPose(pose, v.ring, v.prevCell + cells * alpha, r + dr * alpha);
 
-			// Turns outward, which is to the right, or inward and back in lane changes
+			// Turns outward, which is to the right (left with left-hand
+			// traffic), or inward and back in lane changes
 			if (dr != 0)
 			{
 				var ahead = cells * 2 * Math.PI * (r + dr / 2) / n;
 				var yaw = Math.min(laneChangeYaw, Math.atan2(Math.abs(dr), ahead) * 180 / Math.PI);
-				pose.yaw = ((dr > 0) ? 1 : -1) * yaw * Math.sin(Math.PI * alpha);
+				pose.yaw = ((dr > 0) ? 1 : -1) * v.ring.turn * yaw * Math.sin(Math.PI * alpha);
 				pose.a += pose.yaw;
 			}
 		}
@@ -5952,7 +5975,7 @@ window.TrafficSimulation = function(ui, listener)
 			if (sim.arrived > 0 && sim.travel > 0)
 			{
 				lines.push('Average trip: ' + formatTime(Math.round(sim.travel / sim.arrived)));
-				lines.push('Average speed: ' + (3.6 * cellLength * sim.driven / sim.travel).toFixed(1) + ' km/h');
+				lines.push('Average speed: ' + formatSpeed(3.6 * cellLength * sim.driven / sim.travel, 1));
 			}
 
 			lines.push('Reroutes: ' + sim.replanned);
@@ -6490,8 +6513,11 @@ window.TrafficSimulation = function(ui, listener)
 	 * centering, passOncoming turned off starts no new passes through the
 	 * oncoming lane, adaptive paints the roads, the vehicles, the stop bars and
 	 * the density in the colors of the theme or in the same ones for both,
-	 * and mapBackground, which the page sets while the map is behind the
-	 * roads, changes the colors of the vehicles without adaptive.
+	 * mapBackground, which the page sets while the map is behind the roads,
+	 * changes the colors of the vehicles without adaptive, units (kmh or mph)
+	 * shows the speeds in another unit, and leftHand, the driving side,
+	 * repaints the roads and roundabouts and starts again with the network
+	 * mirrored.
 	 */
 	function setOption(key, value)
 	{
@@ -6566,20 +6592,29 @@ window.TrafficSimulation = function(ui, listener)
 				updateNetwork();
 			}
 		}
+		else if (key == 'units' && net != null)
+		{
+			updateStats();
+			schedule();
+		}
+		else if (key == 'leftHand' && value != roads.leftHand)
+		{
+			// The roads are painted mirrored, the rings turn the other way,
+			// and the cars start again
+			roads.leftHand = value;
+			redrawShapes();
+
+			if (overlay != null)
+			{
+				reset();
+			}
+		}
 		else if (key == 'adaptive')
 		{
 			// Repaints the shapes of roads and junctions, the stop bars and the
 			// density
 			roads.adaptive = value;
-
-			graph.view.states.visit(function(id, state)
-			{
-				if (state.shape != null && state.style != null && (state.style[mxConstants.STYLE_SHAPE] == 'road' ||
-					state.style[mxConstants.STYLE_SHAPE] == 'roundabout' || roads.isCrossing(state.style)))
-				{
-					state.shape.redraw();
-				}
-			});
+			redrawShapes();
 
 			if (net != null)
 			{
@@ -6638,6 +6673,21 @@ window.TrafficSimulation = function(ui, listener)
 
 			schedule();
 		}
+	};
+
+	/**
+	 * Repaints the shapes of roads and junctions.
+	 */
+	function redrawShapes()
+	{
+		graph.view.states.visit(function(id, state)
+		{
+			if (state.shape != null && state.style != null && (state.style[mxConstants.STYLE_SHAPE] == 'road' ||
+				state.style[mxConstants.STYLE_SHAPE] == 'roundabout' || roads.isCrossing(state.style)))
+			{
+				state.shape.redraw();
+			}
+		});
 	};
 
 	/**
@@ -7105,7 +7155,7 @@ window.TrafficSimulation = function(ui, listener)
 			var r = vehicleShapes[v.type.name].length / 2 * getVehicleScale(v.type) + 4 / s;
 			var lx = v.x + r * 0.7071 + 10 / s;
 			var ly = v.y - r * 0.7071 - 10 / s;
-			var text = getTypeName(v) + ' · ' + Math.round(getKmh(v)) + ' km/h';
+			var text = getTypeName(v) + ' · ' + formatSpeed(getKmh(v));
 			focus.halo.setAttribute('cx', v.x);
 			focus.halo.setAttribute('cy', v.y);
 			focus.halo.setAttribute('r', r);
@@ -7341,6 +7391,15 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
+	 * Returns the given speed in km/h in the unit of the speeds (units) with
+	 * the given digits after the point, eg. 31 mph.
+	 */
+	function formatSpeed(kmh, digits)
+	{
+		return window.TrafficUnits.format(kmh, config.units, digits);
+	};
+
+	/**
 	 * Returns the name of the given junction for the panel.
 	 */
 	function getJunctionName(junction)
@@ -7370,8 +7429,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		if (!gone)
 		{
-			rows.push(['Speed', Math.round(getKmh(v)) + ' of ' + Math.round(3.6 * cellLength *
-				((v.link != null) ? v.link.getTopSpeed(v) : getTopSpeed(v))) + ' km/h']);
+			rows.push(['Speed', window.TrafficUnits.toUnit(getKmh(v), config.units).toFixed(0) + ' of ' +
+				formatSpeed(3.6 * cellLength * ((v.link != null) ? v.link.getTopSpeed(v) : getTopSpeed(v)))]);
 		}
 
 		rows.push(['Trip', getTripText(v.trip)]);

@@ -449,6 +449,24 @@ input[type="checkbox"] {
 	color: var(--text);
 }
 
+/* Number with its unit, eg. Speed limit */
+.unit {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.unit input {
+	flex: 1;
+	min-width: 0;
+}
+
+.unit span {
+	min-width: 2.4em;
+	color: var(--text);
+}
+
 /* Shapes of the vehicles with their top speeds and the colors of the speeds */
 .legend {
 	display: grid;

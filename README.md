@@ -51,13 +51,17 @@ on Android, still enlarges the whole page.
   junction, which draws a two-way road.
 - A road with one arrow is a one-way road in the direction of the arrow.
   One with no or two arrows is a road in both directions, with its lanes on
-  the right of each direction. `lanes=2` in the style of a road (Edit
-  Style) sets the lanes per direction, up to 4. `laneSpec` sets each lane
-  from left to right in the drawn direction instead, as `f` (forward) or
-  `b` (backward) followed by the turns it allows (`l`, `s`, `r`, all if
-  none), for example `laneSpec=b,fl,fsr` for one lane back, a left-turn
-  lane and a lane for straight on and right. Roads show turn arrows before
-  the end of lanes with turns.
+  the right of each direction, or on the left with left-hand traffic (see
+  [Speed Unit and Driving Side](#speed-unit-and-driving-side)). `lanes=2`
+  in the style of a road (Edit Style) sets the lanes per direction, up to
+  4, and `lanesForward=2` and `lanesBackward=1` different lanes per
+  direction, as loaded towns have them. `laneSpec` sets each lane from left
+  to right in the drawn direction instead, as `f` (forward) or `b`
+  (backward) followed by the turns it allows (`l`, `s`, `r`, all if none),
+  for example `laneSpec=b,fl,fsr` for one lane back, a left-turn lane and a
+  lane for straight on and right, with right-hand traffic; with left-hand
+  traffic, the road is its mirror image. Roads show turn arrows before the
+  end of lanes with turns.
 - `trafficLight=10` in the style of a junction makes it a traffic light
   that gives green to one approach axis at a time for 10 seconds, followed
   by 3 seconds of yellow. While the simulation runs, a stop bar across the
@@ -68,8 +72,8 @@ on Android, still enlarges the whole page.
   the panel is on (off by default), at least 13 pixels high and 10 m at
   close zoom.
 - A roundabout (`shape=roundabout`) is a ring road where traffic circulates
-  counterclockwise, with 1 to 3 lanes (`lanes`). Cars give way to the ring
-  when they enter.
+  counterclockwise, or clockwise with left-hand traffic, with 1 to 3 lanes
+  (`lanes`). Cars give way to the ring when they enter.
 - Ends of roads that are dragged or dropped within 8 units of a crossing
   connect to it, so that the small crossings are easy to hit.
 - Roads connect to the outline of their junctions. Waypoints of a road that
@@ -83,8 +87,9 @@ on Android, still enlarges the whole page.
 - The Selection section of the panel shows the selected junctions and
   roads: the type of junctions (crossing, traffic light, roundabout), the
   green time of traffic lights with their cycle, the lanes of roundabouts,
-  the lanes per direction and direction of roads, and for one road each
-  lane with its direction and turns. Changes apply at once, also while
+  the lanes per direction, direction and speed limit of roads (in the
+  speed unit, empty for none), and for one road each lane with its
+  direction and turns. Changes apply at once, also while
   cars are driving, and can be undone. Below are live statistics of the
   first selected junction and each direction of the first selected road:
   the cars there now and on their way there on their routes, the cars that
@@ -170,9 +175,11 @@ on Android, still enlarges the whole page.
   the inline toolbar and the waypoints menu, and their lanes, markings and
   cars follow the waypoints and curves. Rounded corners of roads start at
   least as far from the corner as the road is wide.
-- `maxSpeed=50` in the style of a road is its speed limit in km/h, as cells
-  per step (rounded, at least 27 km/h). Without it, vehicles drive up to
-  Max. speed.
+- `maxSpeed=50` in the style of a road is its speed limit in km/h, and
+  `maxSpeed=30 mph` one in mph, as cells per step (rounded, at least 27
+  km/h). Without it, vehicles drive up to Max. speed. Speed limit in the
+  Selection section shows and sets it in the speed unit of the panel, in
+  mph as `30 mph`.
 - `highway=residential` in the style of a road is its class, as in
   OpenStreetMap, which keeps trucks on main roads (see [Trips](#trips)):
   `unclassified` roads are collector roads, `residential`, `living_street`
@@ -384,6 +391,44 @@ bend sharply near junctions and roads cross without a junction (bridges).
 A step takes about 0.3 ms longer with 1,000 vehicles in Zurich and the
 frame rate stays the same (35 to 36 frames per second with 500 vehicles,
 half of them trucks, at 10x in Chrome without a GPU).
+
+## Speed Unit and Driving Side
+
+Region, Speed unit and Driving side in the Simulation section of the
+panel set how speeds are shown and on which side traffic drives. The
+browser keeps both across reloads (`traffic-units` and `traffic-side` in
+localStorage), and the diagram does not change, so one drawing works on
+both sides.
+
+- Speed unit is km/h, the default, or mph. Every speed that the page shows
+  or takes is in it: Max. speed, the top speeds of the legend, the label
+  of a followed vehicle and its speed and top speed in the Vehicle
+  section, Average speed in the statistics, the speeds of the selection and
+  the Speed limit of roads. The simulation keeps its cells of 7.5 m per
+  step inside (27 km/h or about 17 mph each), so Max. speed goes from 17 to
+  101 mph, and a limit of 30 mph (48 km/h) is 2 cells per step like 50
+  km/h. Distances stay in meters and kilometers.
+- Driving side is right-hand traffic, the default, or left-hand traffic,
+  as in the United Kingdom, Ireland, Australia, New Zealand, Japan, India
+  and South Africa. Left-hand traffic is the mirror image of right-hand
+  traffic: vehicles keep left, change to the right to pass and back to the
+  left, overtake through the oncoming lane on the right, turn right from
+  the lanes next to the middle of the road, which a lane for right turns
+  stands for, and drive clockwise around roundabouts, where they give way
+  to the ring from the right. The roads are painted that way, with the
+  lanes of each direction on its left, their turn arrows and the stop and
+  give-way lines, the heads of the traffic lights stand on the left of
+  each approach, and cars start in the lanes of their side. A road with
+  `laneSpec` is painted and driven as its mirror image, so the examples
+  and saved diagrams work on both sides, and the lanes in the Selection
+  section show and set the lanes as they are painted, from left to right
+  in the drawn direction. Crossings take their roads in turns and traffic
+  lights give green per axis, which needs no mirror. A change of the side
+  starts the cars again.
+- Region sets both at once: Europe and most countries (km/h, right),
+  United States (mph, right), United Kingdom (mph, left) and Australia,
+  Japan, India (km/h, left). As each pair has its region, it always shows
+  the region of the current speed unit and driving side.
 
 ## Trips
 
@@ -716,7 +761,11 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
   bottom right corner of the diagram shows "© OpenStreetMap contributors,
   ODbL" with links at all zoom levels.
 
-Traffic drives on the right in all towns, and turn lanes are not loaded.
+Towns drive on the Driving side of the panel, which loading a town does
+not change, so choose United Kingdom or Australia, Japan, India under
+Region for towns there: their lanes per direction (`lanesForward` and
+`lanesBackward`) are on the side of their direction, so they fit both
+sides. Turn lanes are not loaded.
 
 Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density
 and the heads of the traffic lights, in frames per second with all layers, with only the map and the vehicles,
@@ -877,6 +926,19 @@ then writes its own debug messages and has a Develop menu.
   with the state that the simulation reports, like the Start and Pause
   button, so that it follows every start and stop. The editor in its frame
   keeps its icon to itself.
+- `js/units.js` converts and formats the speeds of the panel and the
+  simulation from km/h to the speed unit, in the page, in the editor and in
+  Node for `tools/unit-test.js`. With left-hand traffic
+  (`TrafficRoads.leftHand`, which `setOption('leftHand')` sets),
+  `TrafficRoads.getLanePlan` returns the mirror image of the lanes of each
+  road (`mirrorLanes`: the opposite order with left and right turns
+  swapped) and `getLaneSpec` mirrors them back, so the shapes and the panel
+  see the lanes as painted. The simulation keeps driving on the right in
+  mirrored terms: `getModelLanes` mirrors the lanes of each direction back
+  for its links, `getTurn` mirrors the angle of turns, and roundabouts
+  number their cells clockwise (`Roundabout.turn`), so keeping right,
+  passing on the left, left turns from the inner lanes and the ring become
+  their mirror images without other changes.
 - `js/roads.js` registers the road and roundabout shapes, which paint
   asphalt with edge lines, lane dividers, center lines, arrows on one-way
   roads and stop and give-way lines, and replaces the shape libraries with
@@ -984,6 +1046,18 @@ then writes its own debug messages and has a Develop menu.
   python3 -m http.server 8000 &
   npm install --no-save --prefix /tmp/smoke playwright-core@1.61.1
   NODE_PATH=/tmp/smoke/node_modules node tools/smoke-test.js http://localhost:8000/index.html
+  ```
+
+  `tools/unit-test.js` checks the conversion of the speeds, speed limits in
+  km/h and mph and the lanes on both driving sides in Node, and
+  `tools/driving-side-test.js` the panel in mph and the cars of the Town
+  example, which keep left and drive clockwise around the roundabout with
+  left-hand traffic and keep right and drive counterclockwise with
+  right-hand traffic, in headless Chrome like the smoke test:
+
+  ```bash
+  node tools/unit-test.js
+  NODE_PATH=/tmp/smoke/node_modules node tools/driving-side-test.js http://localhost:8000/index.html
   ```
 
 - `.github/workflows/pages.yml` publishes the page (`index.html`, `css`,

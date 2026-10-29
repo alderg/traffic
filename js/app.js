@@ -45,6 +45,7 @@
 	var sim = null;
 	var roads = null;
 	var updateSelection = null;
+	var showSelection = null;
 	var updateTrips = null;
 	var statsShown = null;
 	var town = null;
@@ -59,6 +60,14 @@
 	var legendStops = null;
 	var faviconRunning = false;
 	var tiles = getTiles();
+	// Keys of the speed unit and the driving side in the local storage, and
+	// the regions that set both
+	var unitsKey = 'traffic-units';
+	var sideKey = 'traffic-side';
+	var regions = [{name: 'world', label: 'Europe and most countries', units: 'kmh', leftHand: false},
+		{name: 'us', label: 'United States', units: 'mph', leftHand: false},
+		{name: 'uk', label: 'United Kingdom', units: 'mph', leftHand: true},
+		{name: 'au', label: 'Australia, Japan, India', units: 'kmh', leftHand: true}];
 	var vehicleSection = document.getElementById('vehicle');
 	var centerHint = document.getElementById('center-hint');
 	var carsHint = document.getElementById('cars-hint');
@@ -389,6 +398,114 @@
 	};
 
 	/**
+	 * Returns the setting of the page with the given key, or null.
+	 */
+	function readSetting(key)
+	{
+		try
+		{
+			return window.localStorage.getItem(key);
+		}
+		catch (e)
+		{
+			return null;
+		}
+	};
+
+	/**
+	 * Keeps the given setting of the page for the next visit.
+	 */
+	function writeSetting(key, value)
+	{
+		try
+		{
+			window.localStorage.setItem(key, value);
+		}
+		catch (e)
+		{
+			// Keeps the setting until the page reloads
+		}
+	};
+
+	/**
+	 * Shows the speed unit, the driving side and the region that sets both
+	 * in the panel, changes them in the simulation and keeps them, and calls
+	 * updateSpeeds with a new unit.
+	 */
+	function initRegion(updateSpeeds)
+	{
+		var config = sim.config;
+		var region = document.getElementById('region');
+		var units = document.getElementById('units');
+		var side = document.getElementById('side');
+		addOptions(region, regions.map(function(r) { return r.name; }),
+			regions.map(function(r) { return r.label; }));
+		addOptions(units, TrafficUnits.units, TrafficUnits.units.map(TrafficUnits.getLabel));
+		addOptions(side, ['right', 'left'], ['Right-hand traffic', 'Left-hand traffic']);
+
+		// Each region has another pair of unit and side
+		function show()
+		{
+			units.value = config.units;
+			side.value = (config.leftHand) ? 'left' : 'right';
+			region.value = regions.filter(function(r)
+			{
+				return r.units == config.units && r.leftHand == config.leftHand;
+			})[0].name;
+		};
+
+		function setUnits(value)
+		{
+			if (value != config.units)
+			{
+				sim.setOption('units', value);
+				writeSetting(unitsKey, value);
+				updateSpeeds();
+
+				if (showSelection != null)
+				{
+					showSelection();
+				}
+			}
+		};
+
+		function setLeftHand(value)
+		{
+			if (value != config.leftHand)
+			{
+				sim.setOption('leftHand', value);
+				writeSetting(sideKey, (value) ? 'left' : 'right');
+			}
+		};
+
+		units.addEventListener('change', function()
+		{
+			setUnits(units.value);
+			show();
+		});
+
+		side.addEventListener('change', function()
+		{
+			setLeftHand(side.value == 'left');
+			show();
+		});
+
+		region.addEventListener('change', function()
+		{
+			var r = regions.filter(function(r)
+			{
+				return r.name == region.value;
+			})[0];
+
+			setUnits(r.units);
+			setLeftHand(r.leftHand);
+			show();
+		});
+
+		show();
+	};
+
+	/**
 	 * Calls fn with the EditorUi of the frame once draw.io has started.
 	 * Draw.loadPlugin is the supported way to get it.
 	 */
@@ -444,7 +561,7 @@
 	{
 		var win = frame.contentWindow;
 
-		loadScripts(['js/roads.js', 'js/simulation.js', 'js/map.js'], function()
+		loadScripts(['js/units.js', 'js/roads.js', 'js/simulation.js', 'js/map.js'], function()
 		{
 			ui = editorUi;
 			logHandledErrors();
@@ -903,6 +1020,8 @@
 		var cycle = document.getElementById('cycle');
 		var lanes = document.getElementById('lanes');
 		var direction = document.getElementById('direction');
+		var maxSpeed = document.getElementById('max-speed');
+		var maxSpeedUnit = document.getElementById('max-speed-unit');
 		var ringFields = document.getElementById('ring-fields');
 		var ringLanes = document.getElementById('ring-lanes');
 		var laneFields = document.getElementById('lane-fields');
@@ -953,8 +1072,9 @@
 				columns = columns.concat(stats || []);
 			});
 
+			var unit = sim.config.units;
 			var rows = [['Cars now', 'cars', 0, ''], ['Expected', 'expected', 0, ''],
-				['Entered', 'entered', 0, ''], ['Left', 'left', 0, ''], ['Speed', 'speed', 0, ' km/h'],
+				['Entered', 'entered', 0, ''], ['Left', 'left', 0, ''], ['Speed', 'speed', 0, ' ' + TrafficUnits.getLabel(unit)],
 				['Throughput', 'throughput', 0, '/h'], ['Waiting', 'wait', 1, ' s']];
 			var html = '<tr><th></th>' + columns.map(function(c)
 			{
@@ -965,7 +1085,11 @@
 			{
 				html += '<tr><td>' + rows[i][0] + '</td>' + columns.map(function(c)
 				{
-					return '<td>' + format(c[rows[i][1]], rows[i][2], rows[i][3]) + '</td>';
+					var value = c[rows[i][1]];
+
+					// Speeds come in km/h
+					return '<td>' + format((rows[i][1] == 'speed' && value != null) ?
+						TrafficUnits.toUnit(value, unit) : value, rows[i][2], rows[i][3]) + '</td>';
 				}).join('') + '</tr>';
 			}
 
@@ -1103,6 +1227,7 @@
 				var road = roads.getRoad(edges[0]);
 				lanes.value = Math.min(4, road.lanes);
 				direction.value = road.dir;
+				showMaxSpeed();
 				plan = road.plan;
 				laneFields.hidden = edges.length != 1;
 				lanesHint.hidden = edges.length == 1;
@@ -1119,6 +1244,23 @@
 		};
 
 		/**
+		 * Shows the speed limit of the first selected road in the unit of the
+		 * speeds, empty for none.
+		 */
+		function showMaxSpeed()
+		{
+			var unit = sim.config.units;
+			maxSpeedUnit.textContent = TrafficUnits.getLabel(unit);
+			maxSpeed.max = Math.round(TrafficUnits.toUnit(200, unit));
+
+			if (document.activeElement != maxSpeed)
+			{
+				var kmh = roads.getMaxSpeed(edges[0]);
+				maxSpeed.value = (kmh > 0) ? Math.round(TrafficUnits.toUnit(kmh, unit)) : '';
+			}
+		};
+
+		/**
 		 * Sets the lanes of the selected road.
 		 */
 		function setLanes(lanePlan)
@@ -1130,6 +1272,7 @@
 		};
 
 		show = win.TrafficRoads.guard(show, 'selection panel');
+		showSelection = show;
 		graph.getSelectionModel().addListener(win.mxEvent.CHANGE, show);
 		graph.model.addListener(win.mxEvent.CHANGE, show);
 
@@ -1163,6 +1306,18 @@
 		ringLanes.addEventListener('change', function()
 		{
 			roads.setRingLanes(junctions, parseInt(ringLanes.value));
+		});
+
+		// In the unit of the speeds, which the style keeps, eg. 30 mph, empty
+		// or 0 for none
+		maxSpeed.addEventListener('change', function()
+		{
+			var unit = sim.config.units;
+			var value = Math.round(parseFloat(maxSpeed.value));
+			value = Math.min(value, Math.round(TrafficUnits.toUnit(200, unit)));
+			roads.setMaxSpeed(edges, (value > 0) ? value + ((unit == 'mph') ? ' mph' : '') : null);
+			maxSpeed.blur();
+			show();
 		});
 
 		laneList.addEventListener('change', function(evt)
@@ -2560,9 +2715,22 @@
 			updateCapacity();
 		});
 
+		// The speed unit and the driving side that the page keeps, before the
+		// speeds are shown and the network is built
+		var storedUnits = readSetting(unitsKey);
+		sim.setOption('units', (TrafficUnits.units.indexOf(storedUnits) >= 0) ? storedUnits : 'kmh');
+		sim.setOption('leftHand', readSetting(sideKey) == 'left');
+
+		// Cells per step in the unit of the speeds
+		function formatCells(cells)
+		{
+			return TrafficUnits.format(cells * 27, config.units);
+		};
+
+		var vmaxValues = [1, 2, 3, 4, 5, 6];
 		var selects = {
 			speed: [[1, 2, 5, 10, 20, 50, 100], ['1x', '2x', '5x', '10x', '20x', '50x', '100x']],
-			vmax: [[1, 2, 3, 4, 5, 6], ['27 km/h', '54 km/h', '81 km/h', '108 km/h', '135 km/h', '162 km/h']],
+			vmax: [vmaxValues, vmaxValues.map(formatCells)],
 			noise: [[0, 0.1, 0.25, 0.5], ['0 %', '10 %', '25 %', '50 %']],
 			trucks: [[0, 0.1, 0.2, 0.3, 0.5], ['0 %', '10 %', '20 %', '30 %', '50 %']],
 			fast: [[0, 0.05, 0.1, 0.2, 0.3], ['0 %', '5 %', '10 %', '20 %', '30 %']]};
@@ -2635,10 +2803,10 @@
 		{
 			for (var i = 0; i < typeNames.length; i++)
 			{
-				typeSpeeds[i].textContent = Math.max(1, config.vmax + typeNames[i][2]) * 27 + ' km/h';
+				typeSpeeds[i].textContent = formatCells(Math.max(1, config.vmax + typeNames[i][2]));
 			}
 
-			topSpeed.textContent = (config.vmax + ((config.fast > 0) ? 1 : 0)) * 27 + ' km/h';
+			topSpeed.textContent = formatCells(config.vmax + ((config.fast > 0) ? 1 : 0));
 		};
 
 		Object.keys(selects).forEach(function(key)
@@ -2658,6 +2826,19 @@
 		});
 
 		updateTypes();
+
+		// A new speed unit relabels Max. speed and the legend
+		initRegion(function()
+		{
+			var vmax = document.getElementById('vmax');
+
+			for (var i = 0; i < vmax.options.length; i++)
+			{
+				vmax.options[i].textContent = formatCells(parseFloat(vmax.options[i].value));
+			}
+
+			updateTypes();
+		});
 
 		// Color sets of the speeds, which the legend shows at once
 		var colors = document.getElementById('colors');

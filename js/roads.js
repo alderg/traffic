@@ -17,7 +17,9 @@
  * arrow is a one-way road, no or two arrows a road in both directions, as
  * in the simulation. laneSpec lists each lane from left to right in the
  * drawn direction instead, as f (forward) or b (backward) followed by the
- * turns it allows at its end (l, s, r, all if none), eg. laneSpec=b,fl,fsr.
+ * turns it allows at its end (l, s, r, all if none), eg. laneSpec=b,fl,fsr,
+ * for right-hand traffic: with left-hand traffic, roads are painted and
+ * driven as its mirror image (fsl,fr,b), like all roads (leftHand).
  * The stroke color is the asphalt and the fill color the markings: edge
  * lines, dashed lane dividers, a dashed center line (solid double line with
  * more lanes), arrows on the lanes of one-way roads, turn arrows before the
@@ -26,7 +28,8 @@
  *
  * A roundabout is a shape with shape=roundabout: a ring road with lanes on
  * the outside and a central island in islandColor. Traffic circulates
- * counterclockwise and enters and leaves on the roads connected to it.
+ * counterclockwise, clockwise with left-hand traffic, and enters and leaves
+ * on the roads connected to it.
  *
  * A crossing is an ellipse or a traffic light. With roads connected, the
  * roads end as far from its center as its widest road is wide, traffic
@@ -470,18 +473,20 @@ window.TrafficRoads = function(ui)
 			c.stroke();
 		}
 
-		// Counterclockwise arrows on the outer lane of the ring
+		// Arrows on the outer lane of the ring, counterclockwise, or clockwise
+		// with left-hand traffic
 		c.setDashed(false);
 		var r = ring.radii[0];
 		var s = Math.min(ring.laneWidth, r * 0.35);
+		var turn = (roads.leftHand) ? -1 : 1;
 
 		for (var i = 0; i < 4; i++)
 		{
 			var a = (i + 0.5) * Math.PI / 2;
 			var px = cx + r * Math.cos(a);
 			var py = cy + r * Math.sin(a);
-			var dx = Math.sin(a);
-			var dy = -Math.cos(a);
+			var dx = turn * Math.sin(a);
+			var dy = -turn * Math.cos(a);
 
 			c.begin();
 			c.moveTo(px - dx * 0.7 * s, py - dy * 0.7 * s);
@@ -1502,6 +1507,27 @@ window.TrafficRoads = function(ui)
 		},
 
 		/**
+		 * Returns the speed limit of the given road in km/h, or 0 for none
+		 * (see TrafficRoads.getMaxSpeed).
+		 */
+		getMaxSpeed: function(cell)
+		{
+			return roads.getMaxSpeed(graph.getCellStyle(cell));
+		},
+
+		/**
+		 * Sets the speed limit of the given roads to the given value of
+		 * maxSpeed, eg. 50 for km/h or 30 mph, or null for none.
+		 */
+		setMaxSpeed: function(cells, value)
+		{
+			graph.setCellStyles('maxSpeed', value, cells.filter(function(cell)
+			{
+				return graph.model.isEdge(cell);
+			}));
+		},
+
+		/**
 		 * Gives the given connector, which becomes a road, the given lanes
 		 * from left to right with direction (1 or -1) and turns (null for all).
 		 * The arrows, the lanes per direction and the stroke width follow, so
@@ -1513,8 +1539,8 @@ window.TrafficRoads = function(ui)
 			var f = roads.getTravelLanes(plan, 1, 1).length;
 			var b = roads.getTravelLanes(plan, -1, 1).length;
 			var values = {shape: 'road', laneSpec: roads.getLaneSpec(plan), lanes: Math.max(f, b),
-				endArrow: (b == 0) ? 'block' : 'none', startArrow: (f == 0) ? 'block' : 'none',
-				strokeWidth: plan.length * roads.getLaneWidth(style)};
+				lanesForward: null, lanesBackward: null, endArrow: (b == 0) ? 'block' : 'none',
+				startArrow: (f == 0) ? 'block' : 'none', strokeWidth: plan.length * roads.getLaneWidth(style)};
 
 			graph.model.beginUpdate();
 			try
@@ -1567,7 +1593,8 @@ window.TrafficRoads = function(ui)
 						var style = graph.getCellStyle(cells[i]);
 						var l = (lanes != null) ? lanes : this.getRoad(cells[i]).lanes;
 						var d = (dir != null) ? dir : roads.getDirection(style);
-						var values = {shape: 'road', lanes: l, laneSpec: null, endArrow: (d > 0) ? 'block' : 'none',
+						var values = {shape: 'road', lanes: l, laneSpec: null, lanesForward: null, lanesBackward: null,
+							endArrow: (d > 0) ? 'block' : 'none',
 							startArrow: (d < 0) ? 'block' : 'none',
 							strokeWidth: l * roads.getLaneWidth(style) * ((d == 0) ? 2 : 1)};
 
@@ -1691,11 +1718,55 @@ TrafficRoads.getDirection = function(style)
 };
 
 /**
+ * Driving side of all roads: false for right-hand traffic, the default,
+ * true for left-hand traffic, where roads are the mirror image of their
+ * style, with the lanes of each direction on its left and left and right
+ * turns swapped, and roundabouts turn clockwise. The page sets it.
+ */
+TrafficRoads.leftHand = false;
+
+/**
+ * Returns the mirror image of the given lanes from left to right: in the
+ * opposite order, with left and right turns swapped.
+ */
+TrafficRoads.mirrorLanes = function(plan)
+{
+	return plan.slice().reverse().map(function(lane)
+	{
+		var result = {};
+
+		for (var key in lane)
+		{
+			result[key] = lane[key];
+		}
+
+		result.turns = TrafficRoads.mirrorTurns(lane.turns);
+
+		return result;
+	});
+};
+
+/**
+ * Returns the given turns (l, s, r) with left and right swapped, in the
+ * order l, s, r, or null for all.
+ */
+TrafficRoads.mirrorTurns = function(turns)
+{
+	var mirror = {l: 'r', s: 's', r: 'l'};
+
+	return (turns == null) ? null : 'lsr'.split('').filter(function(c)
+	{
+		return turns.indexOf(mirror[c]) >= 0;
+	}).join('');
+};
+
+/**
  * Returns the lanes of the given road from left to right in the drawn
  * direction, at most 8, with dir 1 for lanes from source to target and -1
  * for the opposite and turns, the turns they allow at their end (l, s, r)
- * or null for all. They come from laneSpec, else lanes=<n> per direction
- * of the arrows.
+ * or null for all. They come from laneSpec, else from lanesForward and
+ * lanesBackward or lanes=<n> per direction of the arrows, each on its
+ * right, and are mirrored with left-hand traffic (leftHand).
  */
 TrafficRoads.getLanePlan = function(style)
 {
@@ -1731,25 +1802,25 @@ TrafficRoads.getLanePlan = function(style)
 	{
 		var lanes = TrafficRoads.getLanes(style);
 		var dir = TrafficRoads.getArrowDirection(style);
+		var fwd = (dir >= 0) ? TrafficRoads.getLanes(style, 'lanesForward', lanes) : 0;
+		var bwd = (dir <= 0) ? TrafficRoads.getLanes(style, 'lanesBackward', lanes) : 0;
 
-		for (var i = 0; i < 2 * lanes; i++)
+		for (var i = 0; i < bwd + fwd; i++)
 		{
-			if ((i < lanes) ? dir <= 0 : dir >= 0)
-			{
-				result.push({dir: (i < lanes) ? -1 : 1, turns: null});
-			}
+			result.push({dir: (i < bwd) ? -1 : 1, turns: null});
 		}
 	}
 
-	return result;
+	return (TrafficRoads.leftHand) ? TrafficRoads.mirrorLanes(result) : result;
 };
 
 /**
- * Returns the laneSpec of the given lanes.
+ * Returns the laneSpec of the given lanes, mirrored with left-hand traffic
+ * (see getLanePlan).
  */
 TrafficRoads.getLaneSpec = function(plan)
 {
-	return plan.map(function(lane)
+	return ((TrafficRoads.leftHand) ? TrafficRoads.mirrorLanes(plan) : plan).map(function(lane)
 	{
 		return ((lane.dir > 0) ? 'f' : 'b') + (lane.turns || '');
 	}).join(',');
@@ -1779,13 +1850,31 @@ TrafficRoads.getTravelLanes = function(plan, dir, lw)
 };
 
 /**
- * Returns the number of lanes per direction, 1 to 4.
+ * Returns the number of lanes per direction, 1 to 4, from lanes or the
+ * given key with the given default.
  */
-TrafficRoads.getLanes = function(style)
+TrafficRoads.getLanes = function(style, key, defaultLanes)
 {
-	var lanes = parseInt(mxUtils.getValue(style, 'lanes', 1));
+	var lanes = parseInt(mxUtils.getValue(style, key || 'lanes', (defaultLanes != null) ? defaultLanes : 1));
 
-	return (isNaN(lanes)) ? 1 : Math.max(1, Math.min(4, lanes));
+	return (isNaN(lanes)) ? ((defaultLanes != null) ? defaultLanes : 1) : Math.max(1, Math.min(4, lanes));
+};
+
+/**
+ * Number of km per mile for speed limits in mph.
+ */
+TrafficRoads.kmPerMile = 1.609344;
+
+/**
+ * Returns the speed limit in km/h of the given road from maxSpeed: a number
+ * in km/h, or a number followed by mph, eg. 30 mph, or 0 for none.
+ */
+TrafficRoads.getMaxSpeed = function(style)
+{
+	var text = String(mxUtils.getValue(style, 'maxSpeed', '')).trim().toLowerCase();
+	var kmh = parseFloat(text) * ((/mph$/.test(text)) ? TrafficRoads.kmPerMile : 1);
+
+	return (kmh > 0) ? kmh : 0;
 };
 
 TrafficRoads.getLaneWidth = function(style)

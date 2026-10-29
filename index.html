@@ -39,6 +39,9 @@
 			<label class="row"><span>Trips</span><select id="trips" disabled></select></label>
 			<label id="through-row" class="row" hidden><span>Through traffic</span><span class="range"><input id="through"
 				type="range" min="0" max="100" step="5" disabled><output id="through-value" for="through"></output></span></label>
+			<label class="row"><span>Region</span><select id="region" title="Sets the speed unit and the driving side" disabled></select></label>
+			<label class="row"><span>Speed unit</span><select id="units" disabled></select></label>
+			<label class="row"><span>Driving side</span><select id="side" disabled></select></label>
 			<label class="check"><input id="reroute" type="checkbox" disabled> Reroute when waiting</label>
 			<label class="check"><input id="passEitherSide" type="checkbox" disabled> Pass on either side (US)</label>
 			<label class="check"><input id="passOncoming" type="checkbox" disabled> Overtake in the oncoming lane</label>
@@ -136,6 +139,9 @@
 					<option value="1">Forward only</option>
 					<option value="-1">Backward only</option>
 				</select></label>
+				<label class="row"><span>Speed limit</span><span class="unit"><input id="max-speed" type="number"
+					min="0" max="200" placeholder="None" aria-describedby="max-speed-unit"><span
+					id="max-speed-unit">km/h</span></span></label>
 				<div id="lane-fields">
 					<p class="hint">Lanes from left to right in the drawn direction, with the turns they allow.</p>
 					<div id="lane-list" class="lane-list"></div>
@@ -242,6 +248,7 @@
 	<iframe id="editor" title="Diagram editor"
 		data-src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1&amp;ui=simple&amp;sidebar=0&amp;format=0&amp;dark=auto"></iframe>
 </main>
+<script src="js/units.js"></script>
 <script src="js/osm.js"></script>
 <script src="js/app.js"></script>
 </body>

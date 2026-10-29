@@ -2365,8 +2365,9 @@ var TrafficOsm = (function()
 	};
 
 	/**
-	 * Returns the style of the given road: lanes per direction, laneSpec
-	 * for different lanes per direction, an arrow for one-way roads,
+	 * Returns the style of the given road: lanes per direction, or
+	 * lanesForward and lanesBackward for different lanes per direction,
+	 * which are on the driving side of the page, an arrow for one-way roads,
 	 * maxSpeed in km/h and its class as highway.
 	 */
 	function getRoadStyle(e)
@@ -2383,8 +2384,8 @@ var TrafficOsm = (function()
 		}
 		else
 		{
-			style += 'endArrow=none;startArrow=none;laneSpec=' + new Array(e.bwd + 1).join('b,') +
-				new Array(e.fwd).join('f,') + 'f;';
+			// On the side of the driving side, which the page sets
+			style += 'endArrow=none;startArrow=none;lanesForward=' + e.fwd + ';lanesBackward=' + e.bwd + ';';
 		}
 
 		return style + 'laneWidth=' + laneWidth + ';strokeWidth=' + ((e.fwd + e.bwd) * laneWidth) +
