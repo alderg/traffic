@@ -1583,7 +1583,9 @@ window.TrafficSimulation = function(ui, listener)
 					park(this.pop(k));
 					getTally(this.to).entered++;
 				}
-				else if (config.reroute && ++top.wait % replanSteps == 0 && replan(top))
+				// The wait counts also without rerouting, so that cars in a lane
+				// that does not allow their turn pass after two rounds
+				else if (++top.wait % replanSteps == 0 && config.reroute && replan(top))
 				{
 					sim.replanned++;
 				}
