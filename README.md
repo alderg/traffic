@@ -158,6 +158,14 @@ on Android, still enlarges the whole page.
 - `maxSpeed=50` in the style of a road is its speed limit in km/h, as cells
   per step (rounded, at least 27 km/h). Without it, vehicles drive up to
   Max. speed.
+- `highway=residential` in the style of a road is its class, as in
+  OpenStreetMap, which keeps trucks on main roads (see [Trips](#trips)):
+  `unclassified` roads are collector roads, `residential`, `living_street`
+  and `service` roads minor streets, and all others (`motorway`, `trunk`,
+  `primary`, `secondary`, `tertiary` and their links) main roads. Loaded
+  towns have it on every road. Roads without it are minor streets if their
+  speed limit is at most 30 km/h with one lane per direction, like the side
+  streets of the Town example, else main roads.
 - `gate=1` in the style of a junction makes it an entry and exit of the
   network: with Random trips, half of the cars start at a gate and half end
   at one, so that traffic flows in and out there, and the other trips use
@@ -310,8 +318,9 @@ Vehicles start at the start of their first road with their whole length
 in it. Cars drive from a random junction to another, half
 of them from or to a gate if there are gates, on the fastest route under the current speeds with the turns that the lanes
 allow (Dijkstra on the roads) and look for another route after waiting 60
-seconds at a junction. Cars that have not arrived 5 minutes after they
-started, or four times the time of their route without other cars if that
+seconds at a junction. Trucks do the same between junctions of main
+roads and avoid other roads (see [Trips](#trips)). Cars that have not
+arrived 5 minutes after they started, or four times the time of their route without other cars if that
 is longer, leave the network, so that gridlocks can form and dissolve. The
 statistics count them as not arrived, and the debug output lists them.
 
@@ -412,6 +421,53 @@ gates, and after 20 minutes 400 of 460 moved at 41 km/h, more than with
 Random (33 to 39 km/h). The trips cost no frame rate (Zurich with 500 cars
 at 10x: 38 frames per second in every mode).
 
+Trucks keep to main roads in every mode, as through traffic and
+deliveries, while cars keep their trips. They start and end only at
+junctions and gates with a main road (see `highway` in
+[Drawing Roads](#drawing-roads)), if the network has at least two of each,
+and their route search counts the time on collector roads 1.5 times and on
+minor streets 4 times, so that they take a side street only where it saves
+much time, also when they look for another route after waiting and after
+changes of the network. With Random, they drive between random junctions
+and gates of main roads, half of them from or to a gate. In the other
+modes, at least half of them are through traffic between gates of main
+roads (all with Through traffic, and the share of the slider if it is
+higher), and the others deliveries between a depot and the centre, or the
+jobs with Zones, half of them each way: the depot is a gate of a main road
+for half of them, else a junction of a main road, weighted toward the
+outskirts, or by its jobs with Zones. The Vehicle section shows eg.
+"Delivery, gate → centre" or "Delivery, depot → work or shops". In networks
+of one class, such as the examples other than the Town, trucks drive like
+cars.
+
+Tested on 2026-10-29 with half of the vehicles trucks at 50x over 20
+minutes (the Town 15), in percent of the km of trucks on minor streets
+before and now (in Zurich with main and collector roads, which has no
+minor streets, on collector roads):
+
+| Network, vehicles | Random | Commuters | Through | Commuters and through | Zones |
+| --- | --- | --- | --- | --- | --- |
+| Zurich, all streets, 1,000 | 11.1 → 1.4 | 13.7 → 1.2 | 4.7 → 0.8 | 10.2 → 1.1 | |
+| Zurich, main and collector, 500 | 1.1 → 0.4 | 1.4 → 0.2 | 0.1 → 0 | 0.8 → 0.2 | 1.1 → 0.1 |
+| Bern, all streets, 700 | 11.1 → 0.9 | | | 11.1 → 0.3 | |
+| Zug, all streets, 150 | 30.8 → 1.9 | 38.4 → 1.8 | | | |
+| Town, 120 | 15.1 → 2.9 | 30.9 → 1.5 | 5.3 → 1.3 | 21.3 → 1.5 | |
+
+With 30 % trucks, Zurich (all streets, Random) went from 11.8 to 1.5 % and
+the Town (200 vehicles) from 17.7 to 3.4 %. Before, two thirds of the
+trips of trucks in Zurich, Bern and Zug started or ended at a junction of
+only minor streets, now none. Cars drive as before, a bit more on minor
+streets where trucks fill the main roads (Zurich, all streets, Random:
+10.7 and 11.7 % of their km, Zug 28 and 35 %). No vehicle got stuck and
+about as many as before did not arrive in their lifetime (0 to 3 in the
+towns, 0 to 29 in the examples, before 0 to 63), also over 40 minutes of
+through traffic in Zurich and when a road was removed and the class of
+another changed while they drove, without errors or warnings of the debug
+output, in all examples too. Towns build
+as fast, with files 3.6 % larger, and open and run as fast as before
+(Zurich, main and collector, 500 vehicles at 10x: 33 frames per second,
+all streets, 1,000 vehicles: 12.5).
+
 ## Examples
 
 The Example menu under Network opens small networks that show what the
@@ -444,8 +500,9 @@ such files into the current diagram), and the others for the browser.
   a two-way ring, and four entries with gates where half of the cars start
   or end, so that traffic crosses the grid.
 - **Bottleneck with a bypass**: a road with two lanes per direction narrows
-  to one lane at 30 km/h for 400 m, like roadworks, and a longer bypass at
-  50 km/h runs around it, with gates at both ends. Cars pick the route that
+  to one lane at 30 km/h for 400 m, like roadworks (a main road with
+  `highway=primary`, which trucks do not avoid like a side street), and a
+  longer bypass at 50 km/h runs around it, with gates at both ends. Cars pick the route that
   is faster under the current speeds: with 60 cars fewer than 1 in 10 take
   the bypass, with 250 cars a queue stands before the lane drop and nearly
   1 in 3 do.
@@ -594,13 +651,14 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
   out, is never a junction: the chain of ways and nodes between two
   junctions is one road with the shape of the ways as its waypoints,
   simplified to 4 m, so that the network stays as small as the junctions
-  allow. Where the lanes or the speed change along the chain, the road
-  keeps the lanes of its longer part and the speed of the time to drive
-  all of it. Only a node where two one-way roads meet head on, which no
-  traffic can pass, stays the end of both. Roads that come back to the
+  allow. Where the lanes, the speed or the class change along the chain,
+  the road keeps the lanes and the class of its longer part and the speed
+  of the time to drive all of it. Only a node where two one-way roads meet
+  head on, which no traffic can pass, stays the end of both. Roads that come back to the
   same junction without another junction on them are dropped, as cars
   cannot use them.
-- Roads keep `oneway` (also implied on motorways and roundabouts, and `-1`),
+- Roads keep their class (`highway`, for the trucks), `oneway` (also
+  implied on motorways and roundabouts, and `-1`),
   the lanes per direction from `lanes`, `lanes:forward` and
   `lanes:backward` without bus and center lanes (1 to 4, one-way motorways
   and trunk roads 2 by default, others 1 per direction) and `maxspeed` (also
@@ -838,7 +896,10 @@ then writes its own debug messages and has a Develop menu.
   from `pickTrip` with the weights of `buildTrips`, made once per network,
   by binary search in cumulative weights and the gravity factor by
   rejection, so that a trip costs as little as a random one and the route
-  search after it.
+  search after it. Trucks (`main` of their type) get theirs from the same
+  model with only the junctions and gates of main roads (`getMain`), and
+  their route search multiplies the cost of each link by the factor of its
+  class (`getRoadClass`, `mainCosts`).
   Each color set of the speeds (`colorSets`) has stops for light mode
   against the road of light mode (#a3a8ad) and for dark mode against the
   road of dark mode (#3c4043), each at least 3:1 at every step, which

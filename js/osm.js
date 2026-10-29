@@ -27,8 +27,9 @@
  * roads end. A node that only joins two roads is never a junction: the
  * chain of ways and nodes between two junctions is one road with the shape
  * of the ways as its points, simplified. Roads keep oneway, the lanes per
- * direction (lanes, lanes:forward and lanes:backward) and maxspeed (as
- * maxSpeed in km/h). Rings of junction=roundabout become roundabouts,
+ * direction (lanes, lanes:forward and lanes:backward), maxspeed (as
+ * maxSpeed in km/h) and their class (highway, which keeps trucks on main
+ * roads in the simulation). Rings of junction=roundabout become roundabouts,
  * highway=traffic_signals on or near a junction a traffic light, and
  * junctions closer than a few meters, eg. of dual carriageways, one
  * junction, with the old ends of the roads as waypoints. The carriageways
@@ -1279,9 +1280,9 @@ var TrafficOsm = (function()
 
 	/**
 	 * Returns the direction (1 for one-way roads in the direction of the
-	 * way, -1 against it, 0 for both), the lanes forward and backward and
-	 * the speed of a way with the given tags, or null for ways that cars do
-	 * not use.
+	 * way, -1 against it, 0 for both), the lanes forward and backward, the
+	 * speed and the class (highway) of a way with the given tags, or null for
+	 * ways that cars do not use.
 	 */
 	function getAttributes(tags)
 	{
@@ -1332,7 +1333,7 @@ var TrafficOsm = (function()
 			parseSpeed(tags['maxspeed:backward']) || 0) || defaultSpeeds[hw] || 50;
 
 		return {dir: dir, fwd: Math.max(1, Math.min(4, f)), bwd: (dir != 0) ? 0 : Math.max(1, Math.min(4, b)),
-			speed: Math.min(200, speed), ring: ring};
+			speed: Math.min(200, speed), ring: ring, highway: hw};
 	};
 
 	/**
@@ -1357,7 +1358,7 @@ var TrafficOsm = (function()
 	Graph.prototype.addEdge = function(from, to, pts, a, id)
 	{
 		var e = {from: from, to: to, pts: pts, fwd: a.fwd, bwd: a.bwd, speed: a.speed, ring: a.ring,
-			id: id, signals: null, length: null, removed: false};
+			highway: a.highway, id: id, signals: null, length: null, removed: false};
 		from.edges.push(e);
 		to.edges.push(e);
 		this.edges.push(e);
@@ -1553,7 +1554,7 @@ var TrafficOsm = (function()
 				if (uses[k] >= 2)
 				{
 					var e = g.addEdge(getVertex(w.refs[start]), getVertex(k), pts,
-						{fwd: w.a.fwd, bwd: w.a.bwd, speed: w.a.speed, ring: w.a.ring}, 'w' + w.id);
+						{fwd: w.a.fwd, bwd: w.a.bwd, speed: w.a.speed, ring: w.a.ring, highway: w.a.highway}, 'w' + w.id);
 					e.signals = (along.length > 0) ? along : null;
 					start = j;
 					pts = [p];
@@ -1913,10 +1914,11 @@ var TrafficOsm = (function()
 	/**
 	 * Merges the two roads of each junction that joins only two roads into
 	 * one road, with the junction as a waypoint, where traffic passes in one
-	 * direction or both. The road keeps the lanes of the longer part and the
-	 * speed of the time to drive both. Two roads to the same junction become
-	 * a loop without another junction, which cars cannot use: with dropLoops
-	 * it is removed, else the junction stays, eg. for mergePairs.
+	 * direction or both. The road keeps the lanes and the class of the longer
+	 * part and the speed of the time to drive both. Two roads to the same
+	 * junction become a loop without another junction, which cars cannot use:
+	 * with dropLoops it is removed, else the junction stays, eg. for
+	 * mergePairs.
 	 */
 	function mergeChains(g, dropLoops)
 	{
@@ -1951,7 +1953,8 @@ var TrafficOsm = (function()
 						{
 							g.addEdge(a.from, b.to, a.pts.concat(b.pts.slice(1)), {fwd: (fwd) ? longer.fwd : 0,
 								bwd: (bwd) ? longer.bwd : 0, speed: Math.round((la + lb) /
-								Math.max(1e-6, la / e0.speed + lb / e1.speed)), ring: e0.ring && e1.ring}, e0.id);
+								Math.max(1e-6, la / e0.speed + lb / e1.speed)), ring: e0.ring && e1.ring,
+								highway: ((la >= lb) ? e0 : e1).highway}, e0.id);
 						}
 					}
 				}
@@ -2363,8 +2366,8 @@ var TrafficOsm = (function()
 
 	/**
 	 * Returns the style of the given road: lanes per direction, laneSpec
-	 * for different lanes per direction, an arrow for one-way roads and
-	 * maxSpeed in km/h.
+	 * for different lanes per direction, an arrow for one-way roads,
+	 * maxSpeed in km/h and its class as highway.
 	 */
 	function getRoadStyle(e)
 	{
@@ -2385,7 +2388,7 @@ var TrafficOsm = (function()
 		}
 
 		return style + 'laneWidth=' + laneWidth + ';strokeWidth=' + ((e.fwd + e.bwd) * laneWidth) +
-			';maxSpeed=' + e.speed + ';';
+			';maxSpeed=' + e.speed + ';' + ((e.highway != null) ? 'highway=' + e.highway + ';' : '');
 	};
 
 	/**
@@ -2514,7 +2517,8 @@ var TrafficOsm = (function()
 			if (e.fwd == 0)
 			{
 				var r = orient(e, e.to, false);
-				e = {id: e.id, from: r.from, to: r.to, pts: r.pts, fwd: r.fwd, bwd: r.bwd, speed: e.speed};
+				e = {id: e.id, from: r.from, to: r.to, pts: r.pts, fwd: r.fwd, bwd: r.bwd, speed: e.speed,
+					highway: e.highway};
 			}
 
 			var id = e.id;

@@ -45,7 +45,11 @@
  * route under the current speeds with the turns their lanes allow and look
  * for another route after waiting at a junction. maxSpeed=<km/h> in the
  * style of a road is its speed limit. Cars that do not arrive in their
- * lifetime leave the network.
+ * lifetime leave the network. Trucks keep to main roads: they start and end
+ * at junctions of main roads, as through traffic or deliveries, and their
+ * routes avoid collector roads and minor streets (highway=<OSM class> in the
+ * style of a road, else roads of 30 km/h or less are minor, see
+ * getRoadClass).
  *
  * Trucks, cars and fast cars have their own top speed, so that faster ones
  * pass slower ones where there is a free lane and queue behind them where
@@ -143,9 +147,22 @@ window.TrafficSimulation = function(ui, listener)
 	var maxImportExtent = 1e6;
 	// Top speed of the types of vehicles in cells per step relative to the
 	// maximum speed, their length in cells, with the key of their share in
-	// the config
-	var vehicleTypes = [{name: 'car', dv: 0, cells: 1}, {name: 'truck', dv: -2, cells: 2, share: 'trucks'},
+	// the config, and whether they keep to main roads
+	var vehicleTypes = [{name: 'car', dv: 0, cells: 1}, {name: 'truck', dv: -2, cells: 2, share: 'trucks', main: true},
 		{name: 'fast', dv: 1, cells: 1, share: 'fast'}];
+	// Classes of roads (see getRoadClass): main roads (0, all classes of
+	// highway that are not here), collector roads (1) and minor streets (2),
+	// the factors of the cost of their links in the route search of vehicles
+	// that keep to main roads, and the speed limit in km/h up to which roads
+	// without a class and with one lane per direction are minor
+	var roadClasses = {unclassified: 1, residential: 2, living_street: 2, service: 2};
+	var mainCosts = [1, 1.5, 4];
+	var minorKmh = 30;
+	// Trucks in the trip modes other than random: at least this share of
+	// them is through traffic, the others are deliveries, from or to a gate
+	// for truckGateShare of them (see pickTrip)
+	var truckThroughShare = 0.5;
+	var truckGateShare = 0.5;
 	var slowest = {type: vehicleTypes.reduce(function(a, b)
 	{
 		return (b.dv < a.dv) ? b : a;
@@ -429,6 +446,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.jointCells = null;
 		this.since = (sim != null) ? sim.time : 0;
 		this.tally = null;
+		this.roadClass = 0;
 		this.opposite = null;
 		this.road = null;
 		this.passPath = null;
@@ -2847,9 +2865,10 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Returns the fastest route from the given first links to the given
 	 * junction under the current speeds with the turns that the lanes allow,
-	 * or null if there is none (Dijkstra on links).
+	 * or null if there is none (Dijkstra on links). For vehicles that keep to
+	 * main roads (main), links of other roads cost more (mainCosts).
 	 */
-	function findRoute(firsts, end)
+	function findRoute(firsts, end, main)
 	{
 		// Reuses the arrays of the network, entries of other searches are stale
 		if (net.stamps == null)
@@ -2864,11 +2883,12 @@ window.TrafficSimulation = function(ui, listener)
 		var prev = net.prev;
 		var stamps = net.stamps;
 		var heap = new Heap();
+		var costs = (main) ? mainCosts : null;
 
 		for (var i = 0; i < firsts.length; i++)
 		{
 			var k = firsts[i].index;
-			dist[k] = firsts[i].getCost();
+			dist[k] = firsts[i].getCost() * ((costs != null) ? costs[firsts[i].roadClass] : 1);
 			prev[k] = null;
 			stamps[k] = search;
 			heap.push(dist[k], firsts[i]);
@@ -2902,7 +2922,7 @@ window.TrafficSimulation = function(ui, listener)
 			for (var j = 0; j < next.length; j++)
 			{
 				var k = next[j].index;
-				var d = top.key + next[j].getCost();
+				var d = top.key + next[j].getCost() * ((costs != null) ? costs[next[j].roadClass] : 1);
 
 				if (link.reach.has(next[j]) && (stamps[k] != search || d < dist[k]))
 				{
@@ -2918,24 +2938,25 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the fastest route from the given junction to the other.
+	 * Returns the fastest route from the given junction to the other, on main
+	 * roads where it can for vehicles that keep to them (main).
 	 */
-	function getRoute(start, end)
+	function getRoute(start, end, main)
 	{
-		return (start == end) ? [] : findRoute(start.fanOut, end);
+		return (start == end) ? [] : findRoute(start.fanOut, end, main);
 	};
 
 	/**
 	 * Returns the fastest route after the given link to the given junction,
 	 * starting with a turn that the given lane allows or any lane if it is
-	 * null.
+	 * null, on main roads where it can for vehicles that keep to them (main).
 	 */
-	function getRouteFrom(link, lane, end)
+	function getRouteFrom(link, lane, end, main)
 	{
 		return (link.to == end) ? [] : findRoute(link.to.fanOut.filter(function(next)
 		{
 			return (lane != null) ? link.allows(lane, next) : link.reach.has(next);
-		}), end);
+		}), end, main);
 	};
 
 	/**
@@ -3041,7 +3062,8 @@ window.TrafficSimulation = function(ui, listener)
 	function createEmptyNetwork()
 	{
 		return {crossings: [], links: [], crossingMap: new Map(), linkMap: new Map(),
-			origins: [], dests: [], gateOrigins: [], gateDests: [], paired: [], passable: [],
+			origins: [], dests: [], gateOrigins: [], gateDests: [], mainOrigins: [], mainDests: [],
+			mainGateOrigins: [], mainGateDests: [], mainClass: 2, paired: [], passable: [],
 			passing: new Set(), cells: 0, lanes: 0, roundabouts: 0, lights: 0, ends: [], dist: null,
 			prev: null, stamps: null, search: 0, tooLarge: false, trips: null, zones: false};
 	};
@@ -3059,6 +3081,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		function addJunction(junction)
 		{
+			// The class of its most important road
+			junction.roadClass = 2;
 			junction.index = result.crossings.length;
 			result.crossings.push(junction);
 			result.crossingMap.set(junction.id, junction);
@@ -3202,7 +3226,7 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		};
 
-		function addLink(key, from, to, points, lanes, lw, limit)
+		function addLink(key, from, to, points, lanes, lw, limit, roadClass)
 		{
 			var link = new Link(key, from, to, points, lanes, lw, limit);
 
@@ -3210,6 +3234,11 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				return;
 			}
+
+			link.roadClass = roadClass;
+			from.roadClass = Math.min(from.roadClass, roadClass);
+			to.roadClass = Math.min(to.roadClass, roadClass);
+			result.mainClass = Math.min(result.mainClass, roadClass);
 
 			if (from.rings != null)
 			{
@@ -3255,15 +3284,16 @@ window.TrafficSimulation = function(ui, listener)
 						var forward = roads.getTravelLanes(plan, 1, lw);
 						var backward = roads.getTravelLanes(plan, -1, lw);
 						var limit = getSpeedLimit(state.style);
+						var roadClass = getRoadClass(state.style, Math.max(forward.length, backward.length));
 
 						if (forward.length > 0)
 						{
-							addLink(state.cell.id + '>', from, to, pts, forward, lw, limit);
+							addLink(state.cell.id + '>', from, to, pts, forward, lw, limit, roadClass);
 						}
 
 						if (backward.length > 0)
 						{
-							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), backward, lw, limit);
+							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), backward, lw, limit, roadClass);
 						}
 
 						// One lane per direction side by side can be passed on
@@ -3373,9 +3403,49 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
+		// Trucks start and end at junctions and gates of main roads
+		result.mainOrigins = getMain(result.origins, result.mainClass);
+		result.mainDests = getMain(result.dests, result.mainClass);
+		result.mainGateOrigins = getMain(result.gateOrigins, result.mainClass);
+		result.mainGateDests = getMain(result.gateDests, result.mainClass);
 		result.passable = getPassable(result);
 
 		return result;
+	};
+
+	/**
+	 * Returns the class of a road with the given style and the given lanes
+	 * per direction: 0 for main roads, 1 for collector roads and 2 for minor
+	 * streets, from highway=<class of OpenStreetMap> in its style, which
+	 * loaded towns have (roadClasses, where unclassified roads are collector
+	 * roads and residential, living and service streets minor ones). Roads
+	 * without it are minor if they have a speed limit of at most minorKmh
+	 * and one lane per direction, eg. the side streets of the Town example,
+	 * else main roads.
+	 */
+	function getRoadClass(style, lanes)
+	{
+		var highway = mxUtils.getValue(style, 'highway', null);
+		var kmh = parseFloat(mxUtils.getValue(style, 'maxSpeed', '0'));
+
+		return (highway != null) ? (roadClasses[highway] || 0) :
+			((kmh > 0 && kmh <= minorKmh && lanes <= 1) ? 2 : 0);
+	};
+
+	/**
+	 * Returns the items of the given list, or of the junctions they return
+	 * for get, whose most important road is of the given class, that of the
+	 * main roads of the network, or more important, or the list itself if
+	 * all or fewer than two of them are.
+	 */
+	function getMain(list, roadClass, get)
+	{
+		var main = list.filter(function(item)
+		{
+			return ((get != null) ? get(item) : item).roadClass <= roadClass;
+		});
+
+		return (main.length >= 2 && main.length < list.length) ? main : list;
 	};
 
 	/**
@@ -3430,7 +3500,7 @@ window.TrafficSimulation = function(ui, listener)
 	 * Keeps the number of cars by adding cars with routes between origins and
 	 * destinations of the trip model in the config (trips): random ones as in
 	 * the Java version, which also read plans from files, or those of
-	 * pickTrip.
+	 * pickTrip, for trucks at junctions and gates of main roads.
 	 */
 	function addCars()
 	{
@@ -3441,14 +3511,18 @@ window.TrafficSimulation = function(ui, listener)
 
 		for (var i = 0; i < missing && net.origins.length > 0; i++)
 		{
-			var trip = (random) ? null : pickTrip();
-			var start = (random) ? getRandomJunction(net.origins, net.gateOrigins) : trip.start;
-			var end = (random) ? getRandomJunction(net.dests, net.gateDests) : trip.end;
-			var route = (start != end) ? getRoute(start, end) : null;
+			var type = getRandomType();
+			var main = type.main;
+			var trip = (random) ? null : pickTrip(main);
+			var start = (random) ? getRandomJunction((main) ? net.mainOrigins : net.origins,
+				(main) ? net.mainGateOrigins : net.gateOrigins) : trip.start;
+			var end = (random) ? getRandomJunction((main) ? net.mainDests : net.dests,
+				(main) ? net.mainGateDests : net.gateDests) : trip.end;
+			var route = (start != end) ? getRoute(start, end, main) : null;
 
 			if (route != null)
 			{
-				var v = new Vehicle(sim.created++, route, sim.time, getRandomType());
+				var v = new Vehicle(sim.created++, route, sim.time, type);
 				v.trip = (random) ? {kind: 'random', from: (start.gate) ? 'gate' : 'junction',
 					to: (end.gate) ? 'gate' : 'junction'} : trip.info;
 				route[0].queue.push(v);
@@ -3553,6 +3627,8 @@ window.TrafficSimulation = function(ui, listener)
 	 * js/osm.js). Gates are the junctions with gate=1, else dead ends in the
 	 * outer part of the network, else its outermost junctions, with pairs
 	 * weighted by their roads (getGateWeight) and more on opposite sides.
+	 * Trucks (main) have the same model with the junctions and gates of the
+	 * main roads only (getMain).
 	 */
 	function buildTrips(network)
 	{
@@ -3614,8 +3690,8 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		var isGate = new Set(gates);
-		var trips = {cx: cx, cy: cy, radius: radius, gates: gates, isGate: isGate, zones: false,
-			origins: [], dests: [], gateOrigins: [], gateDests: [], pairs: [], pairCum: null};
+		var trips = {cx: cx, cy: cy, radius: radius, gates: gates, isGate: isGate, zones: false};
+		var nodes = [];
 
 		for (var i = 0; i < js.length; i++)
 		{
@@ -3626,21 +3702,44 @@ window.TrafficSimulation = function(ui, listener)
 
 			if (!isGate.has(j))
 			{
-				var node = {junction: j, home: n * (0.2 + Math.min(1.2, r)),
+				nodes.push({junction: j, home: n * (0.2 + Math.min(1.2, r)),
 					centre: n * (Math.exp(-(r / 0.45) * (r / 0.45)) + 0.05) + ((j.center) ? 4 * n : 0),
-					homes: j.homes, jobs: j.jobs};
-
-				if (j.fanOut.length > 0)
-				{
-					trips.origins.push(node);
-				}
-
-				if (j.fanIn.length > 0)
-				{
-					trips.dests.push(node);
-				}
+					homes: j.homes, jobs: j.jobs});
 			}
 		}
+
+		var mainNodes = getMain(nodes, network.mainClass, function(node)
+		{
+			return node.junction;
+		});
+		var mainGates = getMain(gates, network.mainClass);
+		addEnds(trips, nodes, gates);
+		trips.main = (mainNodes == nodes && mainGates == gates) ? trips :
+			addEnds({cx: cx, cy: cy}, mainNodes, mainGates);
+
+		return trips;
+	};
+
+	/**
+	 * Adds the given nodes and gates to the given trip model as origins and
+	 * destinations with the cumulative sums of their weights, and the pairs
+	 * of gates for through traffic, and returns the model.
+	 */
+	function addEnds(trips, nodes, gates)
+	{
+		var cx = trips.cx;
+		var cy = trips.cy;
+		trips.origins = nodes.filter(function(node)
+		{
+			return node.junction.fanOut.length > 0;
+		});
+		trips.dests = nodes.filter(function(node)
+		{
+			return node.junction.fanIn.length > 0;
+		});
+		trips.gateOrigins = [];
+		trips.gateDests = [];
+		trips.pairs = [];
 
 		// Weights of gates and of pairs of gates for through traffic
 		var gw = gates.map(getGateWeight);
@@ -3749,31 +3848,40 @@ window.TrafficSimulation = function(ui, listener)
 	 * of through traffic of the mode (none for commuters, all for through
 	 * traffic), else a local trip of the gravity model, toward the centre or
 	 * the jobs for inboundShare of them, from homes and from gates for
-	 * gateCommuterShare, and back from there for the others.
+	 * gateCommuterShare, and back from there for the others. Trucks (main)
+	 * start and end at junctions and gates of main roads: at least
+	 * truckThroughShare of them are through traffic, the others deliveries
+	 * between a depot and the centre or the jobs, half of them each way,
+	 * where the depot is a gate for truckGateShare of them, else a junction
+	 * that is weighted like homes without zones (more toward the outskirts)
+	 * and by its jobs with zones.
 	 */
-	function pickTrip()
+	function pickTrip(main)
 	{
-		var t = getTrips();
+		var trips = getTrips();
+		var t = (main) ? trips.main : trips;
 		var mode = config.trips;
-		var zones = mode == 'zones' && t.zones;
+		var zones = mode == 'zones' && trips.zones;
 		var share = (mode == 'through') ? 1 : ((mode == 'mixed' || mode == 'zones') ? config.through : 0);
-		var home = (zones) ? 'homes' : 'home';
+		var home = (zones) ? ((main) ? 'jobs' : 'homes') : 'home';
 		var attract = (zones) ? 'jobs' : 'centre';
 		var name = (zones) ? 'work' : 'centre';
+		var depot = (main) ? 'depot' : 'home';
 
-		if (t.pairs.length > 0 && Math.random() < share)
+		if (t.pairs.length > 0 && Math.random() < ((main) ? Math.max(share, truckThroughShare) : share))
 		{
 			var pair = t.pairs[pickIndex(t.pairCum)];
 
 			return {start: pair[0], end: pair[1], info: {kind: 'through', from: 'gate', to: 'gate'}};
 		}
 
-		var inbound = Math.random() < inboundShare;
-		var gate = t.gateOrigins.length > 0 && t.gateDests.length > 0 && Math.random() < gateCommuterShare;
+		var inbound = Math.random() < ((main) ? 0.5 : inboundShare);
+		var gate = t.gateOrigins.length > 0 && t.gateDests.length > 0 &&
+			Math.random() < ((main) ? truckGateShare : gateCommuterShare);
 		var start = null;
 		var end = null;
-		var from = (inbound) ? 'home' : name;
-		var to = (inbound) ? name : 'home';
+		var from = (inbound) ? depot : name;
+		var to = (inbound) ? name : depot;
 		var i = -1;
 
 		if (inbound && gate)
@@ -3789,7 +3897,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		if (start == null)
 		{
-			start = net.origins[Math.floor(Math.random() * net.origins.length)];
+			var origins = (main) ? net.mainOrigins : net.origins;
+			start = origins[Math.floor(Math.random() * origins.length)];
 			from = 'junction';
 		}
 
@@ -3800,18 +3909,20 @@ window.TrafficSimulation = function(ui, listener)
 		}
 		else
 		{
-			end = pickDestination(t.dests, t['dest_' + ((inbound) ? attract : home)], start, t.radius);
+			end = pickDestination(t.dests, t['dest_' + ((inbound) ? attract : home)], start, trips.radius);
 		}
+
+		var dests = (main) ? net.mainDests : net.dests;
 
 		// Another junction if the model has none or only the start, eg. in
 		// small networks where all other junctions are gates
 		for (var tries = 0; (end == null || end == start) && tries < 10; tries++)
 		{
-			end = net.dests[Math.floor(Math.random() * net.dests.length)];
+			end = dests[Math.floor(Math.random() * dests.length)];
 			to = (end.gate) ? 'gate' : 'junction';
 		}
 
-		return {start: start, end: end, info: {kind: 'local', from: from, to: to}};
+		return {start: start, end: end, info: {kind: (main) ? 'delivery' : 'local', from: from, to: to}};
 	};
 
 	function addActive(v)
@@ -3927,8 +4038,8 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function replan(v)
 	{
-		var route = (v.ring != null) ? getRoute(v.ring, v.dest) :
-			getRouteFrom(v.link, (v.cell == v.link.out) ? v.lane : null, v.dest);
+		var route = (v.ring != null) ? getRoute(v.ring, v.dest, v.type.main) :
+			getRouteFrom(v.link, (v.cell == v.link.out) ? v.lane : null, v.dest, v.type.main);
 
 		if (route != null)
 		{
@@ -4285,7 +4396,7 @@ window.TrafficSimulation = function(ui, listener)
 			if (route == null || route.length == 0)
 			{
 				var start = net.crossingMap.get(v.route[0].from.id);
-				route = (start != null && dest != null && start != dest) ? getRoute(start, dest) : null;
+				route = (start != null && dest != null && start != dest) ? getRoute(start, dest, v.type.main) : null;
 			}
 
 			if (route != null && dest != null)
@@ -7136,7 +7247,8 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function getTripText(trip)
 	{
-		var names = {home: 'home', centre: 'centre', work: 'work or shops', gate: 'gate', junction: 'junction'};
+		var names = {home: 'home', centre: 'centre', work: 'work or shops', gate: 'gate', junction: 'junction',
+			depot: 'depot'};
 
 		if (trip == null)
 		{
@@ -7144,7 +7256,8 @@ window.TrafficSimulation = function(ui, listener)
 		}
 
 		var kind = (trip.kind == 'through') ? 'Through traffic' : ((trip.kind == 'random') ? 'Random' :
-			((trip.from == 'gate') ? 'Commuter from outside' : ((trip.to == 'gate') ? 'Local, leaving town' : 'Local')));
+			((trip.kind == 'delivery') ? 'Delivery' : ((trip.from == 'gate') ? 'Commuter from outside' :
+			((trip.to == 'gate') ? 'Local, leaving town' : 'Local'))));
 
 		return kind + ', ' + names[trip.from] + ' \u2192 ' + names[trip.to];
 	};
