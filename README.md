@@ -28,9 +28,12 @@ see [Loading Your Town](#loading-your-town).
 - `trafficLight=10` in the style of a junction makes it a traffic light
   that gives green to one approach axis at a time for 10 seconds, followed
   by 3 seconds of yellow. While the simulation runs, a stop bar across the
-  lanes of each approach shows its state in red, yellow or green, and the
-  heads of the traffic lights with their lamps beside the road show it too
-  when Traffic light heads in the panel is on (off by default).
+  lanes of each approach shows its state in red, yellow or green, always,
+  whatever layers are shown, also on the map with the roads hidden, so
+  that one sees why the cars stop there. The heads of the traffic lights
+  with their lamps beside the road show it too when Traffic light heads in
+  the panel is on (off by default), at least 13 pixels high and 10 m at
+  close zoom.
 - A roundabout (`shape=roundabout`) is a ring road where traffic circulates
   counterclockwise, with 1 to 3 lanes (`lanes`). Cars give way to the ring
   when they enter.
@@ -59,10 +62,11 @@ see [Loading Your Town](#loading-your-town).
   400 roads and junctions are in view.
 - The layers in the panel are shown and hidden each on its own, in any
   combination, from the bottom up: Map background (for towns, see
-  [Map Background](#map-background)), Roads and junctions, with the stop
-  bars on their lanes, Traffic light heads and Vehicles. All are on by
-  default except the heads of the traffic lights, as the stop bars show
-  the phases on the road. The simulation runs on exactly as before whatever is shown,
+  [Map Background](#map-background)), Roads and junctions, Traffic light
+  heads and Vehicles. All are on by default except the heads of the
+  traffic lights, as the stop bars of the traffic lights, which are always
+  shown, also on the map without the roads, show the phases on the road.
+  The simulation runs on exactly as before whatever is shown,
   with its statistics, counts and density, and a hidden layer is not
   painted, which saves the time of painting it (Zurich with all streets
   and 1,000 cars at 10x: 11 frames per second with all layers, 47 with
@@ -70,8 +74,8 @@ see [Loading Your Town](#loading-your-town).
   and junctions cannot be clicked or selected, also not with a rectangle,
   and the selection ends; shown, they are clicked, selected and edited as
   usual, also on the map. The traffic lights keep switching whether their
-  heads and stop bars are shown or not (the small symbol in the middle of
-  the junction belongs to the roads). With hidden vehicles, clicks go to
+  heads are shown or not (the small symbol in the middle of the junction
+  belongs to the roads). With hidden vehicles, clicks go to
   the roads under them and a vehicle that is followed is let go. On again,
   each layer shows the state of now. Like the other display settings, the
   layers are not kept when the page reloads.
@@ -645,9 +649,9 @@ then writes its own debug messages and has a Develop menu.
   become light-dark pairs; without Adapt colors, both are the stops of dark
   mode on the gray road, at least 3:1 to it too, except on the light map
   without the roads (the stops of light mode, or `map`). Further sets
-  follow this pattern. The stop bars are in the overlay with the roads
-  layer, the heads of the traffic lights with the Traffic light heads
-  layer.
+  follow this pattern. The stop bars are always in the overlay, above the
+  map and the roads, the heads of the traffic lights with the Traffic
+  light heads layer.
 - `drawio` is [jgraph/drawio](https://github.com/jgraph/drawio) at a release
   tag, without history. To update it by hand:
 

@@ -62,8 +62,9 @@
  * through curves, crossings, roundabouts and lane changes, and in the color
  * of their speed in the color set of the config (colors), unless vehicles in
  * the config is off, which skips painting them, like lights for the heads of
- * the traffic lights and roads for the drawing of the diagram with the stop
- * bars on its lanes. They, traffic lights and the density of the
+ * the traffic lights and roads for the drawing of the diagram. The stop bars
+ * of the traffic lights on the lanes are always painted. They, traffic
+ * lights and the density of the
  * lanes are painted into the overlay pane, and optionally labels with the
  * cars that are on each road and junction in view, on their way there, and
  * that entered and left. Each link and junction counts its cars for the
@@ -202,6 +203,7 @@ window.TrafficSimulation = function(ui, listener)
 	var turnChord = 2.5;
 	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
+	var headSize = 0.72;
 	// Stop bars on the road, darker on the lighter road of light mode
 	var themeBarColors = ['light-dark(#d93025,#ff3b30)', 'light-dark(#f29900,#ffcc00)', 'light-dark(#188038,#34c759)'];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
@@ -3671,13 +3673,13 @@ window.TrafficSimulation = function(ui, listener)
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
 		// Layers from the bottom up: zones, density, route, stop bars, which
-		// belong to the roads, heads of the traffic lights, cars
+		// are always shown, also on the map without the roads, so that one
+		// sees why cars stop there, heads of the traffic lights, cars
 		overlay = {root: root, scale: graph.view.scale, zones: createNode('g', root, {}), roads: createNode('g', root, {}),
 			route: createNode('g', root, {}), bars: createNode('g', root, {}), heads: createNode('g', root, {}),
 			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
 			labels: createNode('g', root, {}), focus: createNode('g', root, {})};
 		overlay.cars.style.display = (config.vehicles) ? '' : 'none';
-		overlay.bars.style.display = (config.roads) ? '' : 'none';
 		overlay.heads.style.display = (config.lights) ? '' : 'none';
 		graph.view.getDrawPane().style.display = (config.roads) ? '' : 'none';
 		outlines = {scale: 0};
@@ -3695,12 +3697,13 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the scale of the traffic light heads, which are 14 units high
-	 * but at least 18 pixels up to 8 times their size.
+	 * Returns the scale of the traffic light heads, headSize of 14 units high
+	 * but at least headSize of 18 pixels (13 pixels) up to 8 times that, so
+	 * that they are readable at normal zoom and cover little of the road.
 	 */
 	function getHeadScale()
 	{
-		return Math.min(8, Math.max(1, 18 / 14 / graph.view.scale));
+		return headSize * Math.min(8, Math.max(1, 18 / 14 / graph.view.scale));
 	};
 
 	/**
@@ -3938,9 +3941,9 @@ window.TrafficSimulation = function(ui, listener)
 			}
 		}
 
-		// Hidden stop bars and heads keep the state they show until they are
-		// shown again
-		for (var i = 0; i < net.crossings.length && (config.roads || config.lights); i++)
+		// Hidden heads keep the state they show until they are shown again,
+		// the stop bars always show it
+		for (var i = 0; i < net.crossings.length; i++)
 		{
 			var crossing = net.crossings[i];
 
@@ -3949,7 +3952,7 @@ window.TrafficSimulation = function(ui, listener)
 				var signal = crossing.signals[j];
 				var state = crossing.getSignal(signal.phase);
 
-				if (config.roads && state != signal.barState)
+				if (state != signal.barState)
 				{
 					signal.barState = state;
 					signal.bar.style.stroke = (config.adaptive) ? themeBarColors[state] : lampColors[state][0];
@@ -5499,8 +5502,8 @@ window.TrafficSimulation = function(ui, listener)
 	 * interpolation, Show density repaints the roads, hiding the vehicles
 	 * stops painting them, also the selected one, hiding the roads takes the
 	 * draw pane out of the page, so that its cells are neither painted nor
-	 * hit, and stops painting the stop bars, hiding the traffic lights stops
-	 * painting their heads while they keep switching, colors paints the
+	 * hit, while the stop bars stay, hiding the traffic lights stops painting
+	 * their heads while they keep switching, colors paints the
 	 * vehicles in another color set, center turned on again ends a pause of
 	 * centering, passOncoming turned off starts no new passes through the
 	 * oncoming lane, adaptive paints the roads, the vehicles, the stop bars and
@@ -5542,17 +5545,12 @@ window.TrafficSimulation = function(ui, listener)
 		else if (key == 'roads' && overlay != null)
 		{
 			// Hidden roads and junctions are neither painted nor hit, and the
-			// selection of the diagram ends. The stop bars belong to the roads.
+			// selection of the diagram ends. The stop bars stay.
 			graph.view.getDrawPane().style.display = (value) ? '' : 'none';
-			overlay.bars.style.display = (value) ? '' : 'none';
 
 			if (!value)
 			{
 				graph.clearSelection();
-			}
-			else if (net != null)
-			{
-				updateNetwork();
 			}
 
 			schedule();
