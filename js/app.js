@@ -61,6 +61,7 @@
 	var tiles = getTiles();
 	var vehicleSection = document.getElementById('vehicle');
 	var centerHint = document.getElementById('center-hint');
+	var carsHint = document.getElementById('cars-hint');
 	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
 	var loading = initLoading();
@@ -701,6 +702,33 @@
 		{
 			updateTrips();
 		}
+
+		updateCapacity();
+	};
+
+	/**
+	 * Shows a hint below Cars if it is more than the network can hold (see
+	 * TrafficSimulation.getCapacity), rounded to two digits.
+	 */
+	function updateCapacity()
+	{
+		var max = (sim != null) ? sim.getCapacity() : null;
+		var over = max != null && sim.config.cars > max;
+		var text = '';
+
+		if (over)
+		{
+			var step = Math.pow(10, Math.max(0, Math.floor(Math.log(max) / Math.LN10) - 1));
+			text = 'More than this network can hold (about ' +
+				(Math.round(max / step) * step).toLocaleString('en-US') + ')';
+		}
+
+		if (carsHint.textContent != text)
+		{
+			carsHint.textContent = text;
+		}
+
+		carsHint.hidden = !over;
 	};
 
 	/**
@@ -2465,8 +2493,9 @@
 		cars.addEventListener('change', function()
 		{
 			var value = parseInt(cars.value);
-			config.cars = (isNaN(value)) ? config.cars : Math.max(0, Math.min(10000, value));
+			config.cars = (isNaN(value)) ? config.cars : Math.max(0, Math.min(20000, value));
 			cars.value = config.cars;
+			updateCapacity();
 		});
 
 		var selects = {
@@ -2560,6 +2589,9 @@
 			{
 				sim.setOption(key, parseFloat(select.value));
 				updateTypes();
+
+				// The share of trucks changes how many vehicles fit
+				updateCapacity();
 			});
 		});
 

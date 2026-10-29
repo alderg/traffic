@@ -324,6 +324,22 @@ arrived 5 minutes after they started, or four times the time of their route with
 is longer, leave the network, so that gridlocks can form and dissolve. The
 statistics count them as not arrived, and the debug output lists them.
 
+Cars in the panel takes 0 to 20,000 vehicles. Each network holds about a
+quarter of its cells (7.5 m of each lane and of the rings of roundabouts)
+in vehicles of the mix of the panel, where trucks take two cells: with
+20 % of trucks about 0.25 × cells / 1.2, computed from the network when
+it is opened, drawn or rebuilt. Beyond that, a car starts only where its
+cells are free, so the further cars mostly wait to start while queues at
+the junctions reach back. When Cars is more than that, a small hint below
+it says "More than this network can hold (about N)"; the value still
+applies. In short runs at 100x the vehicles on the roads levelled off
+within about 40 % of the estimate, without a deadlock: Town (1,818
+cells, about 380) 335, Small with a traffic light (467, about 97) 115,
+Race (339, about 71) 53, Axhausen (4,984, about 1,000) 1,330 and rising,
+Roundabout with five arms (802, about 170) 190, Grid with traffic lights
+(1,248, about 260) 220, Bottleneck with a bypass (1,582, about 330) 240,
+and Zug with all streets (21,571, about 4,500) 3,800 to 4,700.
+
 The lengths and the turns in crossings cost throughput where vehicles
 queue or cross often, as on real roads. Tested on 2026-10-29 with the same
 random draws over 20 minutes after 5, in cars that arrived per hour and

@@ -26,7 +26,9 @@
 		<h2><button type="button" class="fold" aria-expanded="true" aria-controls="simulation-body">
 			<svg class="chevron" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>Simulation</button></h2>
 		<div id="simulation-body" class="fold-body">
-			<label class="row"><span>Cars</span><input id="cars" type="number" min="0" max="10000" disabled></label>
+			<label class="row"><span>Cars</span><input id="cars" type="number" min="0" max="20000"
+				aria-describedby="cars-hint" disabled></label>
+			<p id="cars-hint" class="hint row-hint" aria-live="polite" hidden></p>
 			<label class="row"><span>Speed</span><select id="speed" disabled></select></label>
 			<label class="row"><span>Max. speed</span><select id="vmax" disabled></select></label>
 			<label class="row"><span>Trucks</span><select id="trucks" disabled></select></label>

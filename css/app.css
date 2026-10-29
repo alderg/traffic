@@ -280,6 +280,11 @@ h2 {
 	margin: -2px 0 4px 24px;
 }
 
+/* A hint below the control of a row, eg. Cars */
+.row-hint {
+	margin: -2px 0 8px calc(var(--label-width) + 12px);
+}
+
 /* Controls */
 button, select, input[type="number"], input[type="search"] {
 	height: var(--control-height);

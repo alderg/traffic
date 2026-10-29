@@ -140,6 +140,9 @@ window.TrafficSimulation = function(ui, listener)
 	var maxStepsPerFrame = 100;
 	var maxFrameTime = 40;
 	var maxNewCarsPerStep = 10;
+	// Share of the cells of a network that its vehicles take at most (see
+	// getCapacity)
+	var capacityShare = 0.25;
 	var maxLinkCells = 10000;
 	var maxNetworkCells = 5000000;
 	var maxImportCells = 50000;
@@ -2519,6 +2522,32 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Returns a random type of vehicle with the shares in the config.
 	 */
+	/**
+	 * Returns about how many vehicles the network holds, or null without
+	 * cells: capacityShare of its cells (of the lanes and the rings of
+	 * roundabouts, 7.5 m each) per vehicle of the mix of the config, where
+	 * trucks take two cells. Beyond that, new cars mostly wait to start, as
+	 * a car starts only where its cells are free, and queues at junctions
+	 * reach back. In short runs of the examples and Zug the vehicles on the
+	 * roads levelled off within about 40 % of it without a deadlock.
+	 */
+	function getCapacity()
+	{
+		var cells = 0;
+		var rest = 1;
+
+		for (var i = 1; i < vehicleTypes.length; i++)
+		{
+			var share = Math.max(0, config[vehicleTypes[i].share] || 0);
+			cells += share * (vehicleTypes[i].cells || 1);
+			rest -= share;
+		}
+
+		cells += Math.max(0, rest) * (vehicleTypes[0].cells || 1);
+
+		return (net != null && net.cells > 0) ? Math.round(capacityShare * net.cells / cells) : null;
+	};
+
 	function getRandomType()
 	{
 		var r = Math.random();
@@ -7574,7 +7603,7 @@ window.TrafficSimulation = function(ui, listener)
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
-		vehicleShapes: vehicleShapes, colorSets: colorSets, getSpeedStops: getSpeedStops,
+		vehicleShapes: vehicleShapes, colorSets: colorSets, getSpeedStops: getSpeedStops, getCapacity: getCapacity,
 		selectVehicle: selectVehicle, isCenterPaused: isCenterPaused, setDebug: setDebug,
 		getTripModes: getTripModes, setTrips: setTrips};
 };
