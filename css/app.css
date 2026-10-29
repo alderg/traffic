@@ -1,15 +1,38 @@
+/*
+ * The page: the panel of the simulation on the left and draw.io on the right.
+ * One visual system for the panel: tokens for colors in both themes, a grid
+ * of 4 px, one control height, rows of a label and a control on a column
+ * grid, sections that fold below a title row with a thin separator, and one
+ * focus ring for the keyboard.
+ */
 :root {
 	color-scheme: light;
 	--bg: #ffffff;
-	--panel: #f7f7f8;
-	--text: #1f2328;
-	--muted: #59636e;
-	--border: #d8dee4;
-	--control: #ffffff;
+	--panel: #f8f9fa;
+	--surface: #ffffff;
+	--hover: rgba(60, 64, 67, 0.08);
+	--pressed: rgba(60, 64, 67, 0.14);
+	--text: #202124;
+	--label: #3c4043;
+	--muted: #5f6368;
+	--border: #dadce0;
+	--border-strong: #bdc1c6;
+	--separator: #e3e5e8;
+	--track: #dadce0;
 	--accent: #1a73e8;
+	--accent-hover: #1765cc;
 	--accent-text: #ffffff;
+	--focus: #1a73e8;
 	--error: #c5221f;
+	--chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%235f6368' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 	--map-filter: none;
+
+	--panel-width: 312px;
+	--label-width: 96px;
+	--control-max: 360px;
+	--control-height: 28px;
+	--radius: 6px;
+	--pad: 16px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,13 +40,22 @@
 		color-scheme: dark;
 		--bg: #18191b;
 		--panel: #1f2023;
-		--text: #e6e7e9;
+		--surface: #2a2b2e;
+		--hover: rgba(232, 234, 237, 0.08);
+		--pressed: rgba(232, 234, 237, 0.14);
+		--text: #e8eaed;
+		--label: #c4c7c5;
 		--muted: #9aa0a6;
-		--border: #3a3d42;
-		--control: #2a2c30;
-		--accent: #6ba1f5;
-		--accent-text: #0b1220;
+		--border: #3c4043;
+		--border-strong: #5f6368;
+		--separator: #2f3134;
+		--track: #4a4d51;
+		--accent: #8ab4f8;
+		--accent-hover: #aecbfa;
+		--accent-text: #0b1d3a;
+		--focus: #8ab4f8;
 		--error: #f28b82;
+		--chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%239aa0a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 		--map-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9);
 	}
 }
@@ -32,18 +64,31 @@
 	color-scheme: dark;
 	--bg: #18191b;
 	--panel: #1f2023;
-	--text: #e6e7e9;
+	--surface: #2a2b2e;
+	--hover: rgba(232, 234, 237, 0.08);
+	--pressed: rgba(232, 234, 237, 0.14);
+	--text: #e8eaed;
+	--label: #c4c7c5;
 	--muted: #9aa0a6;
-	--border: #3a3d42;
-	--control: #2a2c30;
-	--accent: #6ba1f5;
-	--accent-text: #0b1220;
+	--border: #3c4043;
+	--border-strong: #5f6368;
+	--separator: #2f3134;
+	--track: #4a4d51;
+	--accent: #8ab4f8;
+	--accent-hover: #aecbfa;
+	--accent-text: #0b1d3a;
+	--focus: #8ab4f8;
 	--error: #f28b82;
+	--chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%239aa0a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 	--map-filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9);
 }
 
 * {
 	box-sizing: border-box;
+}
+
+[hidden] {
+	display: none !important;
 }
 
 html, body {
@@ -55,24 +100,58 @@ body {
 	display: flex;
 	background: var(--bg);
 	color: var(--text);
-	font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+	-webkit-font-smoothing: antialiased;
 }
 
+a {
+	color: var(--accent);
+	text-underline-offset: 2px;
+}
+
+code {
+	font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* One focus ring for the keyboard in both themes */
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+input:focus-visible, select:focus-visible {
+	outline-offset: 1px;
+}
+
+/* Panel */
 .panel {
-	flex: 0 0 300px;
-	width: 300px;
+	flex: 0 0 var(--panel-width);
+	width: var(--panel-width);
 	overflow: auto;
-	padding: 16px;
+	overscroll-behavior: contain;
 	background: var(--panel);
 	border-right: 1px solid var(--border);
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
 	transition: margin-left 0.25s ease, visibility 0s;
 }
 
 /* Slides the panel out to the left, the editor grows into its space */
 .collapsed .panel {
-	margin-left: -300px;
+	margin-left: calc(-1 * var(--panel-width));
 	visibility: hidden;
 	transition: margin-left 0.25s ease, visibility 0s 0.25s;
+}
+
+.panel header {
+	padding: var(--pad) var(--pad) 12px;
+}
+
+h1 {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
 }
 
 .panel header p {
@@ -80,35 +159,36 @@ body {
 	color: var(--muted);
 }
 
-h1 {
-	margin: 0;
-	font-size: 18px;
+/* Sections: a title row that folds the body below it, thin separators */
+section {
+	border-top: 1px solid var(--separator);
+}
+
+section.controls {
+	padding: 0 var(--pad) 14px;
+	border-top: 0;
 }
 
 h2 {
-	margin: 0 0 8px;
-	font-size: 13px;
-	color: var(--muted);
+	margin: 0;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: 0.06em;
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
+	color: var(--muted);
 }
 
-section {
-	padding: 14px 0;
-	border-bottom: 1px solid var(--border);
-}
-
-/* Titled sections fold with the button in their title, which shows the
-   state with a chevron (see initFolding in js/app.js) */
 .fold {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 8px;
 	width: 100%;
+	height: 38px;
 	margin: 0;
-	padding: 0;
+	padding: 0 var(--pad);
 	border: 0;
-	border-radius: 3px;
+	border-radius: 0;
 	background: none;
 	color: inherit;
 	font: inherit;
@@ -120,15 +200,22 @@ section {
 
 .fold:hover {
 	color: var(--text);
+	background: var(--hover);
+}
+
+.fold:active {
+	background: var(--pressed);
 }
 
 .fold:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
+	outline-offset: -2px;
 }
 
+/* The chevron on the right points down when open and right when folded */
 .fold svg {
 	flex: none;
+	order: 1;
+	margin-left: auto;
 	fill: none;
 	stroke: currentColor;
 	stroke-width: 2;
@@ -141,100 +228,300 @@ section {
 	transform: rotate(-90deg);
 }
 
-.folded h2 {
-	margin-bottom: 0;
+.fold-body {
+	padding: 2px var(--pad) 14px;
 }
 
-.controls {
-	padding-bottom: 2px;
-}
-
-.buttons {
-	display: flex;
-	gap: 8px;
-	margin-bottom: 12px;
-}
-
-button, select, input[type="number"], input[type="search"] {
-	font: inherit;
-	color: var(--text);
-	background: var(--control);
-	border: 1px solid var(--border);
-	border-radius: 6px;
-}
-
-button {
-	padding: 6px 14px;
-	cursor: pointer;
-}
-
-button.primary {
-	min-width: 80px;
-	color: var(--accent-text);
-	background: var(--accent);
-	border-color: var(--accent);
-}
-
-button:disabled, select:disabled, input:disabled {
-	cursor: default;
-	opacity: 0.6;
-}
-
-select, input[type="number"] {
-	width: 140px;
-	padding: 4px 6px;
-}
-
-/* The trip modes have longer names */
-#trips {
-	width: 200px;
-}
-
-/* Slider with its value, as wide as the selects */
-.range {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	width: 140px;
-}
-
-.range input {
-	flex: 1;
-	min-width: 0;
-	margin: 0;
-	accent-color: var(--accent);
-}
-
-.range output {
-	width: 3.2em;
-	text-align: right;
-	font-variant-numeric: tabular-nums;
-}
-
+/* Rows of a label and a control on the grid of the panel */
 .row {
-	display: flex;
+	display: grid;
+	grid-template-columns: var(--label-width) minmax(0, var(--control-max));
 	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	margin-bottom: 8px;
+	column-gap: 12px;
+	min-height: var(--control-height);
+	margin: 0 0 6px;
 }
 
-.row[hidden] {
-	display: none;
+.row > span:first-child {
+	color: var(--label);
 }
 
 .check {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 8px;
+	min-height: 26px;
+	color: var(--text);
+	cursor: pointer;
+}
+
+.check:has(input:disabled) {
+	cursor: default;
+}
+
+.row + .check, .legend + .check, .range + .check {
+	margin-top: 4px;
+}
+
+.hint {
+	margin: 4px 0 8px;
+	font-size: 12px;
+	color: var(--muted);
+}
+
+.check-hint {
+	margin: -2px 0 4px 24px;
+}
+
+/* Controls */
+button, select, input[type="number"], input[type="search"] {
+	height: var(--control-height);
+	margin: 0;
+	font: inherit;
+	color: var(--text);
+	background-color: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+}
+
+button {
+	padding: 0 12px;
+	font-weight: 500;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background-color 0.1s ease, border-color 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+	background-color: var(--hover);
+	border-color: var(--border-strong);
+}
+
+button:active:not(:disabled) {
+	background-color: var(--pressed);
+}
+
+button.primary {
+	color: var(--accent-text);
+	background-color: var(--accent);
+	border-color: var(--accent);
+}
+
+button.primary:hover:not(:disabled) {
+	background-color: var(--accent-hover);
+	border-color: var(--accent-hover);
+}
+
+button:disabled, select:disabled, input:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+select {
+	width: 100%;
+	min-width: 0;
+	padding: 0 26px 0 8px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	appearance: none;
+	background-image: var(--chevron);
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+	background-size: 12px 12px;
+	cursor: pointer;
+}
+
+input[type="number"], input[type="search"] {
+	width: 100%;
+	min-width: 0;
+	padding: 0 8px;
+	font-variant-numeric: tabular-nums;
+}
+
+select:hover:not(:disabled), input[type="number"]:hover:not(:disabled), input[type="search"]:hover:not(:disabled) {
+	border-color: var(--border-strong);
+}
+
+select:focus, input[type="number"]:focus, input[type="search"]:focus {
+	border-color: var(--accent);
+}
+
+input[type="checkbox"] {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	accent-color: var(--accent);
+	cursor: inherit;
+}
+
+.buttons {
+	display: flex;
+	gap: 8px;
+}
+
+.buttons button {
+	min-width: 76px;
+}
+
+/* Slider with its value: a track filled up to the value (--fill) */
+.range {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.range input {
+	flex: 1;
+	min-width: 0;
+	height: 18px;
+	margin: 0;
+	background: transparent;
+	appearance: none;
+	cursor: pointer;
+}
+
+.range input::-webkit-slider-runnable-track {
+	height: 4px;
+	border-radius: 2px;
+	background: linear-gradient(to right, var(--accent) var(--fill, 0%), var(--track) var(--fill, 0%));
+}
+
+.range input::-webkit-slider-thumb {
+	width: 14px;
+	height: 14px;
+	margin-top: -5px;
+	border: 2px solid var(--panel);
+	border-radius: 50%;
+	background: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+	appearance: none;
+}
+
+.range input::-moz-range-track {
+	height: 4px;
+	border-radius: 2px;
+	background: var(--track);
+}
+
+.range input::-moz-range-progress {
+	height: 4px;
+	border-radius: 2px;
+	background: var(--accent);
+}
+
+.range input::-moz-range-thumb {
+	width: 10px;
+	height: 10px;
+	border: 2px solid var(--panel);
+	border-radius: 50%;
+	background: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+}
+
+.range input:focus-visible {
+	outline-offset: 3px;
+	border-radius: 4px;
+}
+
+.range output {
+	min-width: 3.4em;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	color: var(--text);
+}
+
+/* Shapes of the vehicles with their top speeds and the colors of the speeds */
+.legend {
+	display: grid;
+	grid-template-columns: var(--label-width) minmax(0, var(--control-max));
+	column-gap: 12px;
+	row-gap: 2px;
+	margin: 4px 0 10px;
+	font-size: 12px;
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.legend .vehicle {
+	display: contents;
+}
+
+.legend .type {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--label);
+}
+
+.legend .type svg {
+	display: block;
+	flex: none;
+	width: 22px;
+}
+
+.legend .top {
+	color: var(--text);
+}
+
+.legend .body {
+	fill: var(--text);
+}
+
+.legend .windows {
+	fill: var(--panel);
+}
+
+/* Speed, 0, the colors, the top speed: the bar in the column of the controls */
+.speed-scale {
+	display: grid;
+	grid-column: 1 / -1;
+	grid-template-columns: calc(var(--label-width) + 4px) auto minmax(0, 1fr) auto;
+	align-items: center;
+	column-gap: 8px;
 	margin-top: 6px;
 }
 
+.speed-scale span:first-child {
+	color: var(--label);
+}
+
+.speed-scale span:last-child {
+	color: var(--text);
+}
+
+.speed-scale .bar {
+	height: 6px;
+	border-radius: 3px;
+}
+
+/* Statistics and the data of the vehicle: names and values in columns */
 .stats {
+	display: grid;
+	row-gap: 4px;
 	font-size: 12px;
-	line-height: 1.6;
-	white-space: pre-line;
 	font-variant-numeric: tabular-nums;
+}
+
+.stat {
+	display: grid;
+	grid-template-columns: var(--label-width) minmax(0, 1fr);
+	column-gap: 12px;
+}
+
+.stat .name {
+	color: var(--muted);
+}
+
+.stat .sep {
+	display: none;
+}
+
+.stat.wide {
+	display: block;
+	color: var(--muted);
 }
 
 .cell-stats {
@@ -261,8 +548,14 @@ select, input[type="number"] {
 }
 
 .cell-stats thead th {
+	padding-bottom: 5px;
 	color: var(--muted);
-	border-bottom: 1px solid var(--border);
+	font-weight: 500;
+	border-bottom: 1px solid var(--separator);
+}
+
+.cell-stats thead + tbody tr:first-child td {
+	padding-top: 5px;
 }
 
 .vehicle-info td {
@@ -270,114 +563,79 @@ select, input[type="number"] {
 	vertical-align: top;
 }
 
+.vehicle-info td:first-child {
+	width: calc(var(--label-width) + 12px);
+}
+
 .vehicle-info td:last-child {
+	padding-left: 0;
 	text-align: left;
+	color: var(--text);
 	overflow-wrap: anywhere;
 }
 
-.hint {
-	margin: 0 0 8px;
-	font-size: 12px;
-	color: var(--muted);
-}
-
-.check-hint {
-	margin: 2px 0 0 22px;
-}
-
-/* Shapes of the vehicles and colors of their speed */
-.legend {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 4px 12px;
-	margin: 0 0 10px;
-	font-size: 12px;
-	color: var(--muted);
-}
-
-.legend .vehicle {
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-}
-
-.legend .body {
-	fill: var(--text);
-}
-
-.legend .windows {
-	fill: var(--panel);
-}
-
-.speed-scale {
-	display: flex;
-	flex-basis: 100%;
-	align-items: center;
-	gap: 6px;
-}
-
-.speed-scale .bar {
-	flex: 1 1 auto;
-	height: 8px;
-	border-radius: 4px;
-}
-
+/* Lanes of the selected road: number, direction, turns and remove */
 .lane-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	margin-bottom: 8px;
+	display: grid;
+	gap: 6px;
+	margin: 0 0 10px;
 }
 
 .lane {
-	display: flex;
+	display: grid;
+	grid-template-columns: 14px minmax(0, 1fr) auto auto auto var(--control-height);
 	align-items: center;
-	gap: 6px;
+	column-gap: 6px;
 }
 
 .lane .name {
-	width: 12px;
 	font-size: 12px;
 	color: var(--muted);
 	text-align: right;
-}
-
-.lane select {
-	width: 118px;
-	padding: 2px 4px;
+	font-variant-numeric: tabular-nums;
 }
 
 .lane label {
 	display: flex;
 	align-items: center;
-	font-size: 16px;
+	gap: 2px;
+	font-size: 15px;
+	line-height: 1;
+	color: var(--label);
 	cursor: pointer;
 }
 
 .lane button {
-	margin-left: auto;
-	padding: 0 7px;
+	width: var(--control-height);
+	padding: 0;
+	font-size: 15px;
+	font-weight: 400;
+	color: var(--muted);
+}
+
+#add-lane {
+	margin-bottom: 4px;
 }
 
 .help ul {
 	margin: 0;
-	padding-left: 18px;
-	color: var(--muted);
+	padding-left: 16px;
+	color: var(--label);
 }
 
 .help li {
-	margin-bottom: 4px;
+	margin-bottom: 6px;
 }
 
-code {
-	font-size: 12px;
+.help li::marker {
+	color: var(--muted);
 }
 
 /* Loading a town from OpenStreetMap */
 .search label {
 	display: block;
-	margin-bottom: 4px;
+	margin-bottom: 6px;
+	color: var(--label);
 }
 
 .search-row {
@@ -388,34 +646,36 @@ code {
 
 .search-row input {
 	flex: 1 1 auto;
-	min-width: 0;
-	padding: 5px 8px;
 }
 
 .matches {
 	margin: 0 0 10px;
 	padding: 0;
 	list-style: none;
+	background: var(--surface);
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius);
 	overflow: hidden;
 }
 
 .matches li + li {
-	border-top: 1px solid var(--border);
+	border-top: 1px solid var(--separator);
 }
 
 .matches button {
 	display: block;
 	width: 100%;
-	padding: 6px 8px;
+	height: auto;
+	padding: 7px 10px;
+	font-weight: 400;
 	text-align: left;
+	white-space: normal;
 	border: 0;
 	border-radius: 0;
 }
 
-.matches button:hover, .matches button:focus-visible {
-	background: var(--panel);
+.matches button:focus-visible {
+	outline-offset: -2px;
 }
 
 .matches .detail, .place span {
@@ -425,7 +685,7 @@ code {
 }
 
 .matches .note {
-	padding: 6px 8px;
+	padding: 7px 10px;
 	font-size: 12px;
 	color: var(--muted);
 }
@@ -439,9 +699,9 @@ code {
 	width: 100%;
 	height: 200px;
 	margin-bottom: 4px;
-	background: var(--control);
+	background: var(--surface);
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius);
 	cursor: crosshair;
 	touch-action: none;
 	user-select: none;
@@ -472,6 +732,14 @@ code {
 	vector-effect: non-scaling-stroke;
 }
 
+#town .buttons {
+	margin: 4px 0 8px;
+}
+
+#import {
+	margin-top: 2px;
+}
+
 .progress {
 	display: flex;
 	align-items: center;
@@ -480,20 +748,13 @@ code {
 	font-size: 12px;
 }
 
-.progress[hidden] {
-	display: none;
-}
-
-#town .row select {
-	width: 170px;
-}
-
 .progress span[role="status"] {
 	flex: 1 1 auto;
 }
 
 .progress button {
-	padding: 3px 10px;
+	height: 24px;
+	padding: 0 10px;
 }
 
 .spinner {
@@ -527,29 +788,41 @@ code {
 }
 
 button.link {
+	height: auto;
 	padding: 0;
+	font-weight: 400;
 	color: var(--accent);
 	background: none;
 	border: 0;
 	text-decoration: underline;
+	text-underline-offset: 2px;
 	font-size: inherit;
 }
 
+button.link:hover:not(:disabled) {
+	background: none;
+}
+
 footer {
-	padding-top: 14px;
+	padding: 12px var(--pad) var(--pad);
 	font-size: 12px;
 	color: var(--muted);
+	border-top: 1px solid var(--separator);
 }
 
-a {
-	color: var(--accent);
-}
-
+/* Editor */
 .editor {
 	position: relative;
 	flex: 1 1 auto;
 	min-width: 0;
 	min-height: 0;
+}
+
+iframe {
+	display: block;
+	width: 100%;
+	height: 100%;
+	border: 0;
 }
 
 /* Tab on the edge of the panel that hides and shows it */
@@ -566,13 +839,15 @@ a {
 	padding: 0;
 	color: var(--muted);
 	background: var(--panel);
+	border: 1px solid var(--border);
 	border-left: 0;
-	border-radius: 0 6px 6px 0;
+	border-radius: 0 var(--radius) var(--radius) 0;
 	transform: translateY(-50%);
 }
 
-.toggle:hover {
+.toggle:hover:not(:disabled) {
 	color: var(--text);
+	background: var(--panel);
 }
 
 .toggle svg {
@@ -589,7 +864,7 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.panel, .collapsed .panel, .toggle svg, .fold svg {
+	.panel, .collapsed .panel, .toggle svg, .fold svg, button {
 		transition: none;
 	}
 
@@ -598,13 +873,7 @@ a {
 	}
 }
 
-iframe {
-	display: block;
-	width: 100%;
-	height: 100%;
-	border: 0;
-}
-
+/* Narrow windows: the panel above the editor */
 @media (max-width: 720px) {
 	html, body {
 		height: auto;
@@ -628,6 +897,17 @@ iframe {
 	.editor {
 		flex: none;
 		height: 80vh;
+	}
+
+	.toggle {
+		top: 0;
+		left: 50%;
+		width: 48px;
+		height: 16px;
+		border: 1px solid var(--border);
+		border-top: 0;
+		border-radius: 0 0 var(--radius) var(--radius);
+		transform: translateX(-50%);
 	}
 
 	.toggle svg {

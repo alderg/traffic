@@ -46,6 +46,7 @@
 	var roads = null;
 	var updateSelection = null;
 	var updateTrips = null;
+	var statsShown = null;
 	var town = null;
 	var map = null;
 	var legendBar = null;
@@ -110,6 +111,7 @@
 	frame.addEventListener('load', function()
 	{
 		addErrorListeners(frame.contentWindow, 'editor');
+		frame.contentWindow.addEventListener('keydown', switchFocus, true);
 	});
 
 	/**
@@ -419,6 +421,57 @@
 		}
 	};
 
+	var panelFocus = null;
+
+	/**
+	 * Alt+Shift+S moves the keyboard focus from the panel to the editor and
+	 * back to where it was in the panel, as draw.io keeps Tab for itself.
+	 * draw.io does not use Alt+Shift+S (its Alt+Shift keys are A, B, E, F, K,
+	 * L, N, O, P, Q, R, T, V, W, X and Y).
+	 */
+	function switchFocus(evt)
+	{
+		if (evt.altKey && evt.shiftKey && !evt.ctrlKey && !evt.metaKey && evt.code == 'KeyS')
+		{
+			evt.preventDefault();
+			evt.stopPropagation();
+			var panel = document.getElementById('panel');
+			var toEditor = panel.contains(document.activeElement);
+
+			// After the handlers of draw.io, which keep the focus in the editor
+			window.setTimeout(function()
+			{
+				if (toEditor)
+				{
+					frame.focus();
+
+					if (ui != null)
+					{
+						ui.editor.graph.container.focus();
+					}
+				}
+				else if (document.body.classList.contains('collapsed'))
+				{
+					window.focus();
+					document.getElementById('toggle').focus();
+				}
+				else
+				{
+					window.focus();
+					((panelFocus != null && panel.contains(panelFocus) && panelFocus.getClientRects().length > 0) ?
+						panelFocus : document.getElementById('start')).focus();
+				}
+			}, 0);
+		}
+	};
+
+	window.addEventListener('keydown', switchFocus, true);
+
+	document.getElementById('panel').addEventListener('focusin', function(evt)
+	{
+		panelFocus = evt.target;
+	});
+
 	/**
 	 * Shows or hides the panel of this page. The editor takes its space.
 	 */
@@ -438,7 +491,7 @@
 
 	function update(lines, running)
 	{
-		stats.textContent = lines.join('\n');
+		showStats(lines);
 		startButton.textContent = (running) ? 'Pause' : 'Start';
 		setFavicon(running);
 
@@ -458,6 +511,34 @@
 		{
 			updateTrips();
 		}
+	};
+
+	/**
+	 * Shows the given lines of the statistics as rows of a name and a value
+	 * in columns, with the line breaks and the colons of the text, so that it
+	 * copies as text. Lines without a name take the whole row.
+	 */
+	function showStats(lines)
+	{
+		var html = lines.map(function(line)
+		{
+			var i = line.indexOf(': ');
+
+			return (i > 0) ? '<div class="stat"><span class="name">' + escapeHtml(line.substring(0, i)) +
+				'</span><span class="sep">: </span><span class="value">' + escapeHtml(line.substring(i + 2)) +
+				'</span></div>' : '<div class="stat wide">' + escapeHtml(line) + '</div>';
+		}).join('\n');
+
+		if (html != statsShown)
+		{
+			statsShown = html;
+			stats.innerHTML = html;
+		}
+	};
+
+	function escapeHtml(text)
+	{
+		return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 	};
 
 	/**
@@ -677,6 +758,7 @@
 				remove.type = 'button';
 				remove.textContent = '\u00d7';
 				remove.title = 'Remove lane ' + (i + 1);
+				remove.setAttribute('aria-label', remove.title);
 				remove.dataset.lane = i;
 				remove.disabled = lanePlan.length == 1;
 				row.appendChild(remove);
@@ -1975,16 +2057,30 @@
 				svg.appendChild(path);
 			});
 
-			row.appendChild(svg);
-			var label = document.createElement('span');
-			row.appendChild(label);
-			typeSpeeds.push(label);
+			// The name with the shape in the column of the labels, the top
+			// speed in the column of the controls
+			var name = document.createElement('span');
+			name.className = 'type';
+			name.appendChild(svg);
+			name.appendChild(document.createTextNode(type[1]));
+			row.appendChild(name);
+			var speed = document.createElement('span');
+			speed.className = 'top';
+			row.appendChild(speed);
+			typeSpeeds.push(speed);
 			types.appendChild(row);
 		});
 
 		var scale = document.createElement('span');
 		scale.className = 'speed-scale';
-		scale.appendChild(document.createTextNode('Speed 0'));
+
+		['Speed', '0'].forEach(function(text)
+		{
+			var span = document.createElement('span');
+			span.textContent = text;
+			scale.appendChild(span);
+		});
+
 		var bar = document.createElement('span');
 		bar.className = 'bar';
 		legendBar = bar;
@@ -1998,8 +2094,7 @@
 		{
 			for (var i = 0; i < typeNames.length; i++)
 			{
-				typeSpeeds[i].textContent = typeNames[i][1] + ' ' +
-					Math.max(1, config.vmax + typeNames[i][2]) * 27 + ' km/h';
+				typeSpeeds[i].textContent = Math.max(1, config.vmax + typeNames[i][2]) * 27 + ' km/h';
 			}
 
 			topSpeed.textContent = (config.vmax + ((config.fast > 0) ? 1 : 0)) * 27 + ' km/h';
@@ -2077,7 +2172,14 @@
 				through.value = Math.round(100 * t.through);
 			}
 
+			showThrough();
+		};
+
+		// The value and the filled part of the track
+		function showThrough()
+		{
 			throughValue.textContent = through.value + ' %';
+			through.style.setProperty('--fill', through.value + '%');
 		};
 
 		trips.addEventListener('change', function()
@@ -2086,10 +2188,7 @@
 			updateTrips();
 		});
 
-		through.addEventListener('input', function()
-		{
-			throughValue.textContent = through.value + ' %';
-		});
+		through.addEventListener('input', showThrough);
 
 		through.addEventListener('change', function()
 		{

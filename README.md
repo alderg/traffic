@@ -21,6 +21,14 @@ only not shown. Network unfolds by itself for the progress or an error of
 loading a town and for "load your town" at the top. The tab on the edge of
 the panel hides the whole panel.
 
+The panel works with the keyboard: Tab and Shift+Tab go through its
+controls in their order on the screen, with a focus ring in both themes,
+Enter or Space fold a section, the arrow keys change dropdowns and the
+slider, and Space checks boxes. Tab leads from the panel into the editor,
+where draw.io keeps Tab for itself, so Alt+Shift+S moves the focus from the
+editor back to where it was in the panel and from the panel into the
+editor; draw.io does not use Alt+Shift+S.
+
 ## Drawing Roads
 
 - Shapes are junctions, connectors between them are roads. The Shapes
@@ -627,6 +635,18 @@ then writes its own debug messages and has a Develop menu.
   in localStorage as `traffic-folded`). New sections of the panel, eg. for
   further settings, follow this pattern, and code that shows progress or
   errors in a folded section unfolds it with `setFolded(name, false)`.
+- `css/app.css` has one visual system for the panel: color tokens for both
+  themes (`--panel`, `--surface`, `--text`, `--label`, `--muted`, `--border`,
+  `--separator`, `--accent`, `--focus`), 13 px text, one control height
+  (`--control-height`, 28 px), and a grid of a label column
+  (`--label-width`) and a control column for rows (`<label class="row">`
+  with a `<span>` and the control), the legend, the statistics and the data
+  of the vehicle, with tabular figures for numbers. Checkboxes are rows of
+  class `check`, hints `hint` (`check-hint` under a checkbox), sliders
+  `range` with their `output`, and buttons `primary` or plain. The
+  statistics are rows of a name and a value with the text and line breaks of
+  their lines. New controls use these classes, so that they look and work
+  like the others, with `:focus-visible` for the keyboard.
 - The favicon shows whether the simulation runs: a traffic light with the
   green lamp lit while the cars drive and the red one while they are
   paused (`img/favicon-running.svg` and `img/favicon-paused.svg`, with PNGs
