@@ -832,20 +832,29 @@ then writes its own debug messages and has a Develop menu.
   ```
 
 - `.github/workflows/update-drawio.yml` keeps it on the latest release of
-  jgraph/drawio, daily at 08:00 UTC: if the submodule is at an older tag, it
-  fetches only the new tag into it, checks that the files the page loads
-  from draw.io are there, opens the page with `tools/smoke-test.js` (headless
-  Chrome: the editor starts, the simulation attaches, the Town example
-  opens and cars drive, without errors), commits "Update draw.io to <tag>"
-  as github-actions[bot] straight to `main` and pushes it. If `main` moved
-  meanwhile, it rebases onto it, and fails if the submodule changed there
-  too. Pushes with the `GITHUB_TOKEN` start no workflows, so it then starts
-  `pages.yml` with `gh workflow run`. Runs wait for each other. Start it by
-  hand, also for a given tag, with:
+  jgraph/drawio, daily at 08:00 UTC, and only ever moves it forward: it
+  updates only if the submodule is at an older release tag, so a newer
+  version or a commit that is no release, set by hand, stays. The job
+  `check` finds the release, the job `test` fetches only its tag into the
+  submodule, checks that the files the page loads from draw.io are there
+  and opens the page with `tools/smoke-test.js` (headless Chrome: the editor
+  starts, the simulation attaches, the Town example opens and cars drive,
+  without errors). Both have a read-only token that is not kept in the
+  checkout, as they run code from outside: the release and the npm
+  packages of the test. Only the job `update` can write, and it runs none
+  of that: it points the submodule at the tested commit on the latest
+  `main` without checking it out, if `main` still has the commit that was
+  checked, commits "Update draw.io to <tag>" as github-actions[bot] and
+  pushes it. Pushes with the `GITHUB_TOKEN` start no workflows, so it then
+  starts `pages.yml` with `gh workflow run`. Actions are pinned by commit.
+  One run at a time; GitHub keeps one more waiting and replaces it with a
+  newer one. Start it by hand, also for a given tag, or as a dry run that
+  checks and tests the release but commits nothing, with:
 
   ```bash
   gh workflow run update-drawio.yml
   gh workflow run update-drawio.yml -f tag=v32.6.1
+  gh workflow run update-drawio.yml -f dry_run=true
   ```
 
   The smoke test runs locally against a served checkout:

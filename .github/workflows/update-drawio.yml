@@ -1,9 +1,15 @@
 name: Update draw.io
 
-# Keeps the drawio submodule on the latest release of jgraph/drawio. Pull
-# requests are turned off for this repository, so the update is committed
-# straight to main, after the app was checked with it, and the site is
-# rebuilt, as pushes with the GITHUB_TOKEN start no other workflows.
+# Keeps the drawio submodule on the latest release of jgraph/drawio, only
+# ever forward. Pull requests are turned off for this repository, so the
+# update is committed straight to main.
+#
+# The fetched release and the npm packages of the smoke test run only in the
+# jobs check and test, with a read-only token that is not stored in the
+# checkout. The job update alone can write, and it runs no fetched code: it
+# points the submodule at the commit that was tested, without checking it
+# out, commits, pushes and starts pages.yml, as pushes with the GITHUB_TOKEN
+# start no other workflows. Actions are pinned by commit.
 on:
   schedule:
     - cron: "0 8 * * *" # daily at 08:00 UTC
@@ -13,10 +19,14 @@ on:
         description: "draw.io release tag, eg. v32.6.1. Empty for the latest release."
         required: false
         type: string
+      dry_run:
+        description: "Check and test the release, also if it is not newer, but commit nothing."
+        required: false
+        type: boolean
+        default: false
 
-permissions:
-  contents: write # pushes the update to main
-  actions: write # starts pages.yml
+# Each job asks for what it needs
+permissions: {}
 
 # One update at a time, the next waits
 concurrency:
@@ -24,59 +34,106 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update:
+  check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      commit: ${{ steps.check.outputs.commit }}
+      current: ${{ steps.check.outputs.current }}
+      changed: ${{ steps.check.outputs.changed }}
+      test: ${{ steps.check.outputs.test }}
     steps:
-      # main as it is now, without the submodule, which is fetched only for
-      # a new release
+      # main as it is now, without the submodule
       - name: Checkout main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-          fetch-depth: 0
+          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Check for a new release
+      # Updates only to a release newer than the one of the submodule, so
+      # that a newer version set by hand stays
+      - name: Check for a newer release
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           TAG="${INPUT_TAG:-$(gh api repos/jgraph/drawio/releases/latest --jq .tag_name)}"
           if ! [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)*$ ]]; then
             echo "::error::Not a release tag of draw.io: $TAG"
             exit 1
           fi
+          TAGS="$(git ls-remote --tags https://github.com/jgraph/drawio.git)"
           # The commit of the tag, which is the peeled line for annotated tags
-          COMMIT="$(git ls-remote --tags https://github.com/jgraph/drawio.git "refs/tags/$TAG" "refs/tags/$TAG^{}" |
+          COMMIT="$(printf '%s\n' "$TAGS" | awk -v t="refs/tags/$TAG" '$2 == t || $2 == t "^{}"' |
             sort -k 2 | tail -n 1 | cut -f 1)"
           if [ -z "$COMMIT" ]; then
             echo "::error::jgraph/drawio has no tag $TAG"
             exit 1
           fi
           CURRENT="$(git rev-parse HEAD:drawio)"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # The release of the commit of the submodule, if it is one
+          CURRENT_TAG="$(printf '%s\n' "$TAGS" | awk -v c="$CURRENT" '$1 == c { print $2 }' |
+            sed -e 's|^refs/tags/||' -e 's|\^{}$||' | grep -E '^v[0-9]+(\.[0-9]+)*$' | sort -V | tail -n 1 || true)"
+          {
+            echo "tag=$TAG"
+            echo "commit=$COMMIT"
+            echo "current=$CURRENT"
+          } >> "$GITHUB_OUTPUT"
+          CHANGED=false
           if [ "$CURRENT" = "$COMMIT" ]; then
-            echo "drawio is at $TAG ($COMMIT) already, nothing to do."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "drawio is at $TAG ($COMMIT) already."
+          elif [ -z "$CURRENT_TAG" ]; then
+            echo "::warning::drawio is at $CURRENT, which is no release tag, so it is not moved to $TAG. Update it by hand."
+          elif [ "$(printf '%s\n%s\n' "$CURRENT_TAG" "$TAG" | sort -V | tail -n 1)" = "$CURRENT_TAG" ]; then
+            echo "drawio is at $CURRENT_TAG, which is not older than $TAG, so it stays."
           else
-            echo "drawio is at $CURRENT, $TAG is $COMMIT."
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "drawio is at $CURRENT_TAG ($CURRENT), $TAG is $COMMIT."
+            CHANGED=true
           fi
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          if [ "$CHANGED" = "true" ] || [ "$DRY_RUN" = "true" ]; then
+            echo "test=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "test=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Runs the release and the npm packages, with a read-only token
+  test:
+    needs: check
+    if: needs.check.outputs.test == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
 
       # Only the tag, without history, like the update in the README
       - name: Fetch the release into the submodule
-        if: steps.check.outputs.changed == 'true'
         env:
-          TAG: ${{ steps.check.outputs.tag }}
+          TAG: ${{ needs.check.outputs.tag }}
+          COMMIT: ${{ needs.check.outputs.commit }}
         run: |
           git -C drawio init -q
           git -C drawio remote add origin https://github.com/jgraph/drawio.git
           git -C drawio fetch -q --depth 1 --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
           git -C drawio checkout -q --detach "refs/tags/$TAG"
+          if [ "$(git -C drawio rev-parse HEAD)" != "$COMMIT" ]; then
+            echo "::error::$TAG is no longer $COMMIT"
+            exit 1
+          fi
           git -C drawio log -1 --format='%H %s'
 
       - name: Check the files that the app loads from draw.io
-        if: steps.check.outputs.changed == 'true'
         working-directory: drawio/src/main/webapp
         run: |
           for f in index.html js/bootstrap.js js/main.js js/PreConfig.js js/PostConfig.js js/app.min.js \
@@ -93,7 +150,6 @@ jobs:
           fi
 
       - name: Smoke test the app with the release
-        if: steps.check.outputs.changed == 'true'
         env:
           NODE_PATH: ${{ runner.temp }}/smoke/node_modules
         run: |
@@ -101,32 +157,53 @@ jobs:
           python3 -m http.server 8000 --bind 127.0.0.1 > /dev/null 2>&1 &
           node tools/smoke-test.js http://127.0.0.1:8000/index.html
 
-      # Rebases onto main if it moved meanwhile and fails if the update does
-      # not apply, eg. because the submodule changed there too
+  # Writes the tested commit of the release, without running any fetched code
+  update:
+    needs: [check, test]
+    if: needs.check.outputs.changed == 'true' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes the update to main
+      actions: write # starts pages.yml
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Points the submodule at the tested commit on the latest main, only
+      # if main still has the commit that was checked, so never backward
       - name: Commit and push to main
         id: push
-        if: steps.check.outputs.changed == 'true'
         env:
-          TAG: ${{ steps.check.outputs.tag }}
+          TAG: ${{ needs.check.outputs.tag }}
+          COMMIT: ${{ needs.check.outputs.commit }}
+          CURRENT: ${{ needs.check.outputs.current }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          if ! [[ "$COMMIT" =~ ^[0-9a-f]{40}$ && "$CURRENT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Not a commit: $COMMIT or $CURRENT"
+            exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add drawio
-          git commit -q -m "Update draw.io to $TAG"
+          BASIC="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+          echo "::add-mask::$BASIC"
+          AUTH="AUTHORIZATION: basic $BASIC"
           for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              echo "pushed=true" >> "$GITHUB_OUTPUT"
+            git -c http.extraheader="$AUTH" fetch -q origin main
+            git reset -q --hard origin/main
+            if [ "$(git rev-parse HEAD:drawio)" != "$CURRENT" ]; then
+              echo "::warning::drawio changed on main meanwhile, so it is not updated to $TAG."
+              echo "pushed=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            git fetch -q origin main
-            if ! git rebase -q origin/main; then
-              git rebase --abort
-              echo "::error::main moved and the update to $TAG does not apply to it any more"
-              exit 1
-            fi
-            if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
-              echo "main has the update already."
-              echo "pushed=false" >> "$GITHUB_OUTPUT"
+            git update-index --cacheinfo "160000,$COMMIT,drawio"
+            git commit -q -m "Update draw.io to $TAG"
+            if git -c http.extraheader="$AUTH" push origin HEAD:main; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
