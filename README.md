@@ -259,8 +259,8 @@ per step, one car per road at a time: only if the cell behind it and as
 many cells ahead of the slower one as it is long and one more are free
 (two for a car), if it can be past the whole length of the other while
 accelerating to its top speed and back at least 8 cells (60 m) before the
-end of the road (also before crossings, roundabouts and joints) and 12
-before a turn, and if no oncoming car at the top speed, or one that comes
+end of the road (also before crossings, roundabouts and joints) and 20
+(150 m) before a turn, and if no oncoming car at the top speed, or one that comes
 from the end of the road, where the driver cannot see, can come within 3
 cells meanwhile. While it passes, oncoming cars brake for it and the cars
 behind it keep the cell behind it free, or behind the tail of the other
@@ -269,7 +269,8 @@ of the other, and aborts and falls back in behind its tail if the
 car ahead of the other leaves no space, an oncoming car or the end of
 the road comes too near or it takes longer than 60 steps. Its lane changes
 are painted like the others. Cars only pass where vehicles have different
-top speeds, so not on roads whose speed limit is below that of trucks.
+top speeds, so not on roads whose speed limit is at or below the top
+speed of trucks.
 The panel counts the overtakes in the oncoming lane and those that were
 aborted. Turned off, also while the simulation runs, no new passes start
 and the cars that pass at that moment finish or abort their pass as
@@ -279,7 +280,8 @@ leaves out the line of the overtakes. Like the others, the setting is not
 kept when the page reloads. Crossings let
 as many cars pass per step as their widest incoming road has lanes and
 take the incoming roads in turns. Cars only pass from
-lanes that allow their turn and drive through crossings on a curve at one
+lanes that allow their turn, unless they waited for 2 minutes, and drive
+through crossings on a curve at one
 cell per step (27 km/h) to a lane of the next road that suits their turn
 and the turn after it, behind the tail of the car ahead on its way
 there, and only if the cells of their length at the start of that lane
@@ -352,8 +354,9 @@ or the jobs in orange, as circles with an area in proportion to their
 weight, the gates as rings and the centre as a cross.
 
 - **Random**, the default of drawn networks and the examples: random
-  junctions as before, with half of the cars from or to a gate if there are
-  gates.
+  junctions as before; if there are gates, half of the cars start at one and
+  half end at one, drawn on their own, so that three quarters of the trips
+  touch a gate.
 - **Commuters to the centre**: 65 % of the trips go from homes toward the
   centre and 35 % back. The centre is the junctions with `center=1`, else
   the most connected junctions: the mean of the junctions weighted by the
@@ -450,7 +453,7 @@ Under Network, Load your town loads the roads of a town or city from
   Springfield.
 - A small map shows the town limits: the administrative boundary of the
   place, or for places without one (villages that are only a node) a circle
-  of 0.5 to 5 km around the center by the kind of place, which the panel
+  of 0.3 to 5 km around the center by the kind of place, which the panel
   says. Click the map to load only a circle of 1 to 5 km (Section) around
   that point, or drag a rectangle.
 - Roads chooses the road classes: Main roads (motorway, trunk, primary,
@@ -516,14 +519,15 @@ while the map is off or the diagram has none.
 The map is a live layer of tiles behind the transparent canvas of draw.io
 (`js/map.js`), placed again at each change of the zoom, the scroll and the
 pan, also during the zoom preview of draw.io, so that it stays on the roads
-and sharp at all zoom levels: it uses the tiles of the zoom level whose
-size is nearest to the scale, up to zoom 19, which are scaled by 0.84 to
-1.19. In dark mode the tiles are inverted. The tiles are in a pane with
-the filter of dark mode and the opacity of the slider, over the background
-color of the diagram. Towns are built in Web Mercator like the tiles, with
-one scale per town, and the text with the attribution keeps the Mercator
-meters of the origin of the diagram and the scale (`mercator`), so that
-saved towns get their map too.
+and sharp at all zoom levels: it uses the tiles of the next finer zoom
+level, or of the coarser one while it is less than a quarter of a level
+away, up to zoom 19, which are scaled by 0.6 to 1.19. In dark mode the
+tiles are inverted. The tiles are in a pane with the filter of dark mode
+and the opacity of the slider, over the background color of the diagram.
+Towns are built in Web Mercator like the tiles, with one scale per town,
+and the text with the attribution keeps the Mercator meters of the origin
+of the diagram and the scale (`mercator`), so that saved towns get their
+map too.
 
 The tiles come from tile.openstreetmap.org, which allows light use under
 its [tile usage policy](https://operations.osmfoundation.org/policies/tiles/):
@@ -576,10 +580,11 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
   cannot use them.
 - Roads keep `oneway` (also implied on motorways and roundabouts, and `-1`),
   the lanes per direction from `lanes`, `lanes:forward` and
-  `lanes:backward` without bus and center lanes (1 to 4, motorways and
-  trunk roads 2 by default) and `maxspeed` (also `mph`, `none`, `walk` and
-  zones such as `CH:urban`, else 120 km/h on motorways, 100 on trunk roads,
-  10 on living streets and 50 on the others) as `maxSpeed`.
+  `lanes:backward` without bus and center lanes (1 to 4, one-way motorways
+  and trunk roads 2 by default, others 1 per direction) and `maxspeed` (also
+  `mph`, `none`, `walk` and zones such as `CH:urban`, else 120 km/h on
+  motorways, 80 on their links, 100 on trunk roads, 10 on living streets and
+  50 on the others) as `maxSpeed`.
 - Closed rings of `junction=roundabout` become roundabouts, with their roads
   connected to them. Junctions of three or more roads with
   `highway=traffic_signals` on them or on a road to them within 45 m are
@@ -659,8 +664,8 @@ The browser loads all data directly, as all services send
   A bounding box is faster for the servers than an area filter and the page
   needs the boundary to cut the roads anyway. Overpass answers runtime
   errors such as timeouts with status 200 and a `remark`, a full server with
-  502 or 504 and too many queries of the same address with 429. The page
-  tries overpass-api.de, overpass.private.coffee and maps.mail.ru in turn,
+  502, 503 or 504 and too many queries of the same address with 429. The
+  page tries overpass-api.de, maps.mail.ru and overpass.private.coffee in turn,
   starting with the last that answered, waits up to 60 s for data from
   each, and after a pause of 10 s tries all again with 120 s, then reports
   the errors. Measured on 2026-10-29: Zug (all streets) 42 s and 1.6 MB,

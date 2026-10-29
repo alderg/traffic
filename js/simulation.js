@@ -90,7 +90,8 @@
  * longest and the events of the last second (spawns, lane changes,
  * crossings, roundabouts, arrivals, reroutes, phases) go to the console once
  * a second, with a warning if no car moves. The simulation never changes the
- * diagram, only importFile inserts cells. This script runs in the window of
+ * diagram, only importFile inserts cells and setTrips sets the trips of a
+ * page in its root. This script runs in the window of
  * the editor after js/roads.js, whose lane geometry it uses:
  * TrafficSimulation(ui, listener) attaches the simulation to the graph of
  * the given EditorUi and calls listener with the lines of the statistics and
