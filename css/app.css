@@ -96,6 +96,13 @@ html, body {
 	margin: 0;
 }
 
+/* Pinch and double tap do not zoom the page on phones and tablets, also not
+ * in the frame of the editor, but still scroll it. draw.io zooms the diagram
+ * itself (README) */
+html {
+	touch-action: pan-x pan-y;
+}
+
 body {
 	display: flex;
 	background: var(--bg);
@@ -976,9 +983,11 @@ iframe {
 		flex-direction: column;
 	}
 
+	/* Passes touch scrolls on to the page, which holds the panel here */
 	.panel {
 		flex: none;
 		width: auto;
+		overscroll-behavior: auto;
 		border-right: 0;
 		border-bottom: 1px solid var(--border);
 	}

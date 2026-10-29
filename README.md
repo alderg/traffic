@@ -29,6 +29,19 @@ where draw.io keeps Tab for itself, so Alt+Shift+S moves the focus from the
 editor back to where it was in the panel and from the panel into the
 editor; draw.io does not use Alt+Shift+S.
 
+On phones and tablets, a pinch or a double tap zooms only the diagram,
+which draw.io zooms and pans itself, and not the page, as a zoomed page
+cuts off the panel and the editor and does not zoom back by itself. The
+page has `touch-action: pan-x pan-y` (`css/app.css`), which leaves
+scrolling to the browser but not zooming, and the viewport
+`maximum-scale=1` (`index.html`), which also keeps Safari on iOS from
+zooming into a field that gets the focus. Safari on iOS zooms with a pinch
+despite the viewport, so `js/app.js` cancels its `gesturestart` and
+`gesturechange` events in the page and in the editor outside the diagram.
+The panel has 13 px text and 28 px controls, which work without zooming,
+and the zoom setting of the browser, eg. Page Zoom of Safari or of Chrome
+on Android, still enlarges the whole page.
+
 ## Drawing Roads
 
 - Shapes are junctions, connectors between them are roads. The Shapes

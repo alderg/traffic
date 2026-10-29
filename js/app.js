@@ -114,11 +114,37 @@
 
 	addErrorListeners(window, 'page');
 
+	/**
+	 * Keeps Safari on iOS from zooming the page with a pinch in the given
+	 * document, as it ignores maximum-scale of the viewport for pinches,
+	 * except in the diagram if isDiagram returns true for the target, where
+	 * draw.io zooms with these events. Other browsers do not have them.
+	 */
+	function blockPageZoom(doc, isDiagram)
+	{
+		var prevent = function(evt)
+		{
+			if (isDiagram == null || !isDiagram(evt.target))
+			{
+				evt.preventDefault();
+			}
+		};
+
+		doc.addEventListener('gesturestart', prevent);
+		doc.addEventListener('gesturechange', prevent);
+	};
+
+	blockPageZoom(document);
+
 	// The window of the editor is replaced when it loads
 	frame.addEventListener('load', function()
 	{
 		addErrorListeners(frame.contentWindow, 'editor');
 		frame.contentWindow.addEventListener('keydown', switchFocus, true);
+		blockPageZoom(frame.contentDocument, function(target)
+		{
+			return ui != null && ui.editor.graph.container.contains(target);
+		});
 	});
 
 	/**
