@@ -34,9 +34,11 @@
  * away and back out before their exit, and leave from the outer lane where
  * their next road starts. Free ends of roads join the junction they are on
  * or other free ends nearby, else they are dead ends. Cars drive from a
- * random junction to another on the fastest route under the current speeds
- * with the turns their lanes allow and look for another route after waiting
- * at a junction. Cars that do not arrive in their lifetime leave the
+ * random junction to another, half of them from or to a junction with
+ * gate=1 in its style if there are such entries and exits, on the fastest
+ * route under the current speeds with the turns their lanes allow and look
+ * for another route after waiting at a junction. maxSpeed=<km/h> in the
+ * style of a road is its speed limit. Cars that do not arrive in their lifetime leave the
  * network.
  *
  * Trucks, cars and fast cars have their own top speed, so that faster ones
@@ -75,6 +77,7 @@ window.TrafficSimulation = function(ui, listener)
 	var keepRightProbability = 0.3;
 	var turnCells = 12;
 	var lifetimeFactor = 4;
+	var gateShare = 0.5;
 	var tallySteps = 10;
 	var tallyBuckets = 6;
 	var maxLabels = 400;
@@ -265,9 +268,10 @@ window.TrafficSimulation = function(ui, listener)
 	 * lanes have the same number of cells, so that cars change lanes at the
 	 * same place.
 	 */
-	function Link(key, from, to, points, lanes, lw)
+	function Link(key, from, to, points, lanes, lw, limit)
 	{
 		this.key = key;
+		this.limit = limit || 0;
 		this.from = from;
 		this.to = to;
 		this.points = points;
@@ -310,6 +314,25 @@ window.TrafficSimulation = function(ui, listener)
 		this.jointCells = null;
 		this.since = (sim != null) ? sim.time : 0;
 		this.tally = null;
+	};
+
+	/**
+	 * Returns the top speed of the given car on this link: its own, at most
+	 * the speed limit of the link.
+	 */
+	Link.prototype.getTopSpeed = function(v)
+	{
+		var vm = getTopSpeed(v);
+
+		return (this.limit > 0) ? Math.min(vm, this.limit) : vm;
+	};
+
+	/**
+	 * Returns the speed of free flow on this link.
+	 */
+	Link.prototype.getFreeSpeed = function()
+	{
+		return (this.limit > 0) ? Math.min(config.vmax, this.limit) : config.vmax;
 	};
 
 	/**
@@ -622,7 +645,7 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				var t = cars[i];
 				var from = t.left;
-				var left = (joint) ? from - Math.min(t.v.v + 1, getTopSpeed(t.v)) : Math.max(from - 1, 0);
+				var left = (joint) ? from - Math.min(t.v.v + 1, this.getTopSpeed(t.v)) : Math.max(from - 1, 0);
 
 				if (ahead != null)
 				{
@@ -766,7 +789,7 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	Link.prototype.getCost = function()
 	{
-		var v = (this.vehicles == 0) ? config.vmax : Math.max(this.vavg, 1 / (this.out + 1));
+		var v = (this.vehicles == 0) ? this.getFreeSpeed() : Math.max(this.vavg, 1 / (this.out + 1));
 
 		return this.out / v;
 	};
@@ -794,7 +817,7 @@ window.TrafficSimulation = function(ui, listener)
 	Link.prototype.chooseLane = function(v, k, cell)
 	{
 		var vmax = config.vmax;
-		var vm = getTopSpeed(v);
+		var vm = this.getTopSpeed(v);
 		var next = v.next();
 		var left = this.out - cell;
 
@@ -904,7 +927,6 @@ window.TrafficSimulation = function(ui, listener)
 			this.changeLanes();
 		}
 
-		var vmax = config.vmax;
 		var noise = config.noise;
 		var moved = 0;
 
@@ -920,7 +942,7 @@ window.TrafficSimulation = function(ui, listener)
 
 				if (v != null)
 				{
-					var vm = Math.max(1, vmax + v.type.dv);
+					var vm = this.getTopSpeed(v);
 					var gap = this.getGap(k, i, vm);
 
 					// The first car drives on through a joint at the end
@@ -1965,8 +1987,8 @@ window.TrafficSimulation = function(ui, listener)
 	function createEmptyNetwork()
 	{
 		return {crossings: [], links: [], crossingMap: new Map(), linkMap: new Map(),
-			origins: [], dests: [], cells: 0, lanes: 0, roundabouts: 0, lights: 0, ends: [],
-			dist: null, prev: null, stamps: null, search: 0, tooLarge: false};
+			origins: [], dests: [], gateOrigins: [], gateDests: [], cells: 0, lanes: 0, roundabouts: 0,
+			lights: 0, ends: [], dist: null, prev: null, stamps: null, search: 0, tooLarge: false};
 	};
 
 	/**
@@ -2011,6 +2033,7 @@ window.TrafficSimulation = function(ui, listener)
 				}
 
 				junction.radius = Math.max(b.width, b.height) / 2;
+				junction.gate = mxUtils.getValue(state.style, 'gate', '0') == '1';
 				addJunction(junction);
 			}
 
@@ -2098,9 +2121,9 @@ window.TrafficSimulation = function(ui, listener)
 			return (terminal != null && model.isVertex(terminal.cell)) ? getJunction(terminal) : null;
 		};
 
-		function addLink(key, from, to, points, lanes, lw)
+		function addLink(key, from, to, points, lanes, lw, limit)
 		{
-			var link = new Link(key, from, to, points, lanes, lw);
+			var link = new Link(key, from, to, points, lanes, lw, limit);
 
 			if (!isFinite(link.length))
 			{
@@ -2150,15 +2173,16 @@ window.TrafficSimulation = function(ui, listener)
 						var lw = roads.getLaneWidth(state.style);
 						var forward = roads.getTravelLanes(plan, 1, lw);
 						var backward = roads.getTravelLanes(plan, -1, lw);
+						var limit = getSpeedLimit(state.style);
 
 						if (forward.length > 0)
 						{
-							addLink(state.cell.id + '>', from, to, pts, forward, lw);
+							addLink(state.cell.id + '>', from, to, pts, forward, lw, limit);
 						}
 
 						if (backward.length > 0)
 						{
-							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), backward, lw);
+							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), backward, lw, limit);
 						}
 					}
 				}
@@ -2242,15 +2266,37 @@ window.TrafficSimulation = function(ui, listener)
 			if (junction.fanOut.length > 0)
 			{
 				result.origins.push(junction);
+
+				if (junction.gate)
+				{
+					result.gateOrigins.push(junction);
+				}
 			}
 
 			if (junction.fanIn.length > 0)
 			{
 				result.dests.push(junction);
+
+				if (junction.gate)
+				{
+					result.gateDests.push(junction);
+				}
 			}
 		}
 
 		return result;
+	};
+
+	/**
+	 * Returns the speed limit in cells per step of a road with the given
+	 * style, from maxSpeed in km/h, at least one cell per step, or 0 for
+	 * none.
+	 */
+	function getSpeedLimit(style)
+	{
+		var kmh = parseFloat(mxUtils.getValue(style, 'maxSpeed', '0'));
+
+		return (kmh > 0) ? Math.max(1, Math.round(kmh / (3.6 * cellLength))) : 0;
 	};
 
 	function createSim()
@@ -2262,19 +2308,30 @@ window.TrafficSimulation = function(ui, listener)
 	/**
 	 * Returns the seconds that a car on the given route has to arrive after
 	 * it starts: the lifetime in the config, or four times the time of the
-	 * route without other cars if that is longer.
+	 * route without other cars at its top speed and the speed limits if that
+	 * is longer.
 	 */
-	function getLifetime(route, vmax)
+	function getLifetime(route, v)
 	{
-		var cells = 0;
+		var steps = 0;
 
 		for (var i = 0; i < route.length; i++)
 		{
-			cells += route[i].out + 1;
+			steps += (route[i].out + 1) / route[i].getTopSpeed(v) + 3;
 		}
 
-		return Math.max(config.lifetime, Math.round(lifetimeFactor *
-			(cells / vmax + 3 * route.length)));
+		return Math.max(config.lifetime, Math.round(lifetimeFactor * steps));
+	};
+
+	/**
+	 * Returns a random junction of the given list, or of the given gates,
+	 * the entries and exits of the network, for gateShare of the cars.
+	 */
+	function getRandomJunction(list, gates)
+	{
+		var from = (gates.length > 0 && Math.random() < gateShare) ? gates : list;
+
+		return from[Math.floor(Math.random() * from.length)];
 	};
 
 	/**
@@ -2289,8 +2346,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		for (var i = 0; i < missing && net.origins.length > 0; i++)
 		{
-			var start = net.origins[Math.floor(Math.random() * net.origins.length)];
-			var end = net.dests[Math.floor(Math.random() * net.dests.length)];
+			var start = getRandomJunction(net.origins, net.gateOrigins);
+			var end = getRandomJunction(net.dests, net.gateDests);
 			var route = (start != end) ? getRoute(start, end) : null;
 
 			if (route != null)
@@ -2303,7 +2360,7 @@ window.TrafficSimulation = function(ui, listener)
 
 	function addActive(v)
 	{
-		v.end = sim.time + getLifetime(v.route, getTopSpeed(v));
+		v.end = sim.time + getLifetime(v.route, v);
 		record('spawn', v, {link: v.route[0].key, dest: v.dest.id, lifetime: v.end - sim.time});
 		sim.queued--;
 		sim.active.add(v);
@@ -4788,7 +4845,8 @@ window.TrafficSimulation = function(ui, listener)
 
 		if (!gone)
 		{
-			rows.push(['Speed', Math.round(getKmh(v)) + ' of ' + Math.round(3.6 * cellLength * getTopSpeed(v)) + ' km/h']);
+			rows.push(['Speed', Math.round(getKmh(v)) + ' of ' + Math.round(3.6 * cellLength *
+				((v.link != null) ? v.link.getTopSpeed(v) : getTopSpeed(v))) + ' km/h']);
 		}
 
 		rows.push(['Start', 'A, ' + getJunctionName(v.origin) + ' at ' + formatTime(v.start)]);

@@ -13,6 +13,11 @@
  * simulation write its state to the console once a second. ?dev=1 or
  * ?test=1 also passes test=1 to the editor for its own debug messages and
  * the Develop menu.
+ *
+ * ?city=<name> or ?osm=<type>/<id> loads the road network of that town from
+ * OpenStreetMap at start instead of the example (js/osm.js), with roads=main,
+ * collector or all and a section as circle=<lat>,<lon>,<m> or
+ * bbox=<south>,<west>,<north>,<east>. Copy Link puts the loaded town there.
  */
 (function()
 {
@@ -32,6 +37,7 @@
 	var sim = null;
 	var roads = null;
 	var updateSelection = null;
+	var town = null;
 	var vehicleSection = document.getElementById('vehicle');
 	var vehicleRows = vehicleSection.querySelector('tbody');
 	var logged = new WeakSet();
@@ -121,6 +127,17 @@
 	};
 
 	/**
+	 * Writes the parameters to the URL of this page, so that reloads and
+	 * links keep them, with / and , as they are for readable links.
+	 */
+	function writeParams()
+	{
+		var query = params.toString().replace(/%2F/gi, '/').replace(/%2C/gi, ',');
+		window.history.replaceState(null, '', window.location.pathname +
+			((query.length > 0) ? '?' + query : '') + window.location.hash);
+	};
+
+	/**
 	 * Turns the debug output of this page and the simulation on or off and
 	 * keeps it in the URL of this page for reloads.
 	 */
@@ -146,9 +163,7 @@
 			params.set('dev', '0');
 		}
 
-		var query = params.toString();
-		window.history.replaceState(null, '', window.location.pathname +
-			((query.length > 0) ? '?' + query : '') + window.location.hash);
+		writeParams();
 
 		if (sim != null)
 		{
@@ -235,10 +250,15 @@
 			sim = win.TrafficSimulation(ui, update);
 			initControls();
 			initSelection();
+			town = initTown();
 			sim.setDebug(debug);
 			sim.start();
 
-			if (ui.isDiagramEmpty())
+			if (params.has('osm') || params.has('city'))
+			{
+				town.loadFromUrl();
+			}
+			else if (ui.isDiagramEmpty())
 			{
 				openExample('small');
 			}
@@ -680,6 +700,951 @@
 	};
 
 	/**
+	 * Loads the road network of a town from OpenStreetMap (js/osm.js): finds
+	 * the town with suggestions while typing and a search on submit, shows
+	 * its limits on a map where a click places a circle and a drag a
+	 * rectangle as the section to load, estimates the size, and loads, builds
+	 * and opens the network with progress and Cancel. Returns functions to
+	 * load the town in the URL and to forget the loaded town when another
+	 * network is opened.
+	 */
+	function initTown()
+	{
+		var osm = window.TrafficOsm;
+		var form = document.getElementById('town-form');
+		var query = document.getElementById('town-query');
+		var matchList = document.getElementById('town-matches');
+		var placeBox = document.getElementById('town-place');
+		var nameText = document.getElementById('town-name');
+		var kindText = document.getElementById('town-kind');
+		var map = document.getElementById('town-map');
+		var level = document.getElementById('town-level');
+		var sectionSelect = document.getElementById('town-section');
+		var sizeText = document.getElementById('town-size');
+		var loadButton = document.getElementById('town-load');
+		var linkButton = document.getElementById('town-link');
+		var progress = document.getElementById('town-progress');
+		var statusText = document.getElementById('town-status');
+		var errorText = document.getElementById('town-error');
+		var infoText = document.getElementById('town-info');
+		var svgNs = 'http://www.w3.org/2000/svg';
+		var tileUrl = 'https://tile.openstreetmap.org/';
+		var defaultRadius = 2000;
+		var place = null;
+		var section = null;
+		var levelChosen = false;
+		var tooLarge = false;
+		var task = null;
+		var suggesting = null;
+		var suggestTimer = null;
+		var view = null;
+		var loaded = null;
+		var estimateId = 0;
+
+		function format(n)
+		{
+			return Math.round(n).toLocaleString('en-US');
+		};
+
+		function formatDate(iso)
+		{
+			return new Date(iso).toLocaleDateString('en-US', {year: 'numeric', month: 'short', day: 'numeric'});
+		};
+
+		function showError(text)
+		{
+			errorText.textContent = text || '';
+			errorText.hidden = text == null;
+		};
+
+		/**
+		 * Starts a task with progress and Cancel and returns its controller.
+		 * A new task cancels the last one.
+		 */
+		function startTask(text)
+		{
+			if (task != null)
+			{
+				task.abort();
+			}
+
+			task = new AbortController();
+			showError(null);
+			statusText.textContent = text;
+			progress.hidden = false;
+			loadButton.disabled = true;
+
+			return task;
+		};
+
+		function endTask(t)
+		{
+			if (task == t)
+			{
+				task = null;
+				progress.hidden = true;
+				loadButton.disabled = place == null || osm.getBounds(place, section) == null || tooLarge;
+			}
+		};
+
+		document.getElementById('town-cancel').addEventListener('click', function()
+		{
+			var t = task;
+
+			if (t != null)
+			{
+				t.abort();
+				endTask(t);
+				infoText.textContent = 'Cancelled.';
+				infoText.hidden = false;
+			}
+		});
+
+		function getMessage(e)
+		{
+			return (e != null && e.message != null) ? e.message : String(e);
+		};
+
+		/**
+		 * Shows the given places to pick from with the given note above.
+		 */
+		function showMatches(list, note)
+		{
+			matchList.textContent = '';
+
+			if (note != null)
+			{
+				var li = document.createElement('li');
+				li.className = 'note';
+				li.textContent = note;
+				matchList.appendChild(li);
+			}
+
+			list.forEach(function(match)
+			{
+				var li = document.createElement('li');
+				var button = document.createElement('button');
+				button.type = 'button';
+				button.textContent = match.name;
+				var detail = document.createElement('span');
+				detail.className = 'detail';
+				detail.textContent = getDetail(match);
+				button.appendChild(detail);
+
+				button.addEventListener('click', function()
+				{
+					pick(match);
+				});
+
+				li.appendChild(button);
+				matchList.appendChild(li);
+			});
+
+			matchList.hidden = list.length == 0 && note == null;
+		};
+
+		/**
+		 * Returns the kind and the region of the given place.
+		 */
+		function getDetail(p)
+		{
+			var region = (p.label || '').split(', ').filter(function(part, i)
+			{
+				return i > 0 || part != p.name;
+			});
+
+			return [(p.kind != null) ? p.kind.charAt(0).toUpperCase() + p.kind.slice(1).replace(/_/g, ' ') : null]
+				.concat(region.slice(-3)).filter(Boolean).join(', ');
+		};
+
+		query.addEventListener('input', function()
+		{
+			window.clearTimeout(suggestTimer);
+
+			if (suggesting != null)
+			{
+				suggesting.abort();
+				suggesting = null;
+			}
+
+			var text = query.value.trim();
+
+			if (text.length < 3)
+			{
+				showMatches([]);
+
+				return;
+			}
+
+			// Photon allows suggestions while typing, Nominatim does not
+			suggestTimer = window.setTimeout(function()
+			{
+				var ctrl = suggesting = new AbortController();
+
+				osm.suggest(text, ctrl.signal).then(function(list)
+				{
+					if (suggesting == ctrl)
+					{
+						showMatches(list, (list.length == 0) ? 'No suggestions, press Enter to search.' : null);
+					}
+				})['catch'](function(e)
+				{
+					if (!ctrl.signal.aborted)
+					{
+						logError(e, 'town suggestions');
+					}
+				});
+			}, 350);
+		});
+
+		query.addEventListener('keydown', function(evt)
+		{
+			var first = matchList.querySelector('button');
+
+			if (evt.key == 'ArrowDown' && first != null)
+			{
+				evt.preventDefault();
+				first.focus();
+			}
+		});
+
+		matchList.addEventListener('keydown', function(evt)
+		{
+			var buttons = Array.prototype.slice.call(matchList.querySelectorAll('button'));
+			var i = buttons.indexOf(document.activeElement);
+
+			if (i >= 0 && (evt.key == 'ArrowDown' || evt.key == 'ArrowUp'))
+			{
+				evt.preventDefault();
+				(buttons[i + ((evt.key == 'ArrowDown') ? 1 : -1)] || query).focus();
+			}
+		});
+
+		form.addEventListener('submit', function(evt)
+		{
+			evt.preventDefault();
+			var text = query.value.trim();
+			window.clearTimeout(suggestTimer);
+
+			if (suggesting != null)
+			{
+				suggesting.abort();
+				suggesting = null;
+			}
+
+			if (text.length > 0)
+			{
+				var t = startTask('Searching for ' + text + '\u2026');
+
+				osm.search(text, t.signal).then(function(list)
+				{
+					endTask(t);
+
+					if (list.length == 1)
+					{
+						showMatches([]);
+						pick(list[0]);
+					}
+					else
+					{
+						showMatches(list, (list.length == 0) ? 'No town or city named ' + text + ' found.' :
+							'Pick the place you mean:');
+					}
+				})['catch'](function(e)
+				{
+					if (!t.signal.aborted)
+					{
+						endTask(t);
+						showError('The search failed: ' + getMessage(e));
+					}
+				});
+			}
+		});
+
+		document.getElementById('town-jump').addEventListener('click', function(evt)
+		{
+			evt.preventDefault();
+			document.body.classList.remove('collapsed');
+			document.getElementById('town').scrollIntoView({block: 'start'});
+			query.focus({preventScroll: true});
+		});
+
+		/**
+		 * Gets the limits of the given match and shows it.
+		 */
+		function pick(match)
+		{
+			var t = startTask('Finding the limits of ' + match.name + '\u2026');
+			showMatches([]);
+
+			osm.lookup(match.key, t.signal).then(function(p)
+			{
+				endTask(t);
+				choose(p, null, null);
+				placeBox.scrollIntoView({block: 'nearest'});
+			})['catch'](function(e)
+			{
+				if (!t.signal.aborted)
+				{
+					endTask(t);
+					showError('Could not get ' + match.name + ': ' + getMessage(e));
+				}
+			});
+		};
+
+		/**
+		 * Shows the given place with the given road level and section.
+		 */
+		function choose(p, roads, s)
+		{
+			place = p;
+			section = s;
+			levelChosen = roads != null;
+			level.value = roads || getDefaultLevel();
+			nameText.textContent = p.name;
+			kindText.textContent = getDetail(p);
+			placeBox.hidden = false;
+			infoText.hidden = true;
+			updateSectionSelect();
+			drawMap();
+			estimate();
+		};
+
+		/**
+		 * Returns all streets for small towns, main and collector roads for
+		 * cities and main roads where that is too large.
+		 */
+		function getDefaultLevel()
+		{
+			var est = osm.estimate(place, section);
+
+			return (est.all <= 3000) ? 'all' : ((est.collector <= osm.limits.junctions) ? 'collector' : 'main');
+		};
+
+		function updateSectionSelect()
+		{
+			var rect = sectionSelect.querySelector('option[value="rect"]');
+			rect.hidden = section == null || section.bbox == null;
+			sectionSelect.value = (section == null) ? '' : ((section.bbox != null) ? 'rect' :
+				((sectionSelect.querySelector('option[value="' + section.r + '"]') != null) ?
+				String(section.r) : ''));
+
+			if (sectionSelect.value == '' && section != null && section.r != null)
+			{
+				// Radius of a link that is not in the list
+				var option = sectionSelect.querySelector('option[data-custom]') || document.createElement('option');
+				option.setAttribute('data-custom', '1');
+				option.value = String(section.r);
+				option.textContent = 'Circle of ' + (section.r / 1000).toFixed(1) + ' km';
+				sectionSelect.appendChild(option);
+				sectionSelect.value = option.value;
+			}
+		};
+
+		sectionSelect.addEventListener('change', function()
+		{
+			var r = parseInt(sectionSelect.value);
+
+			if (sectionSelect.value == '')
+			{
+				section = null;
+			}
+			else if (!isNaN(r))
+			{
+				section = round((section != null && section.lat != null) ? {lat: section.lat, lon: section.lon, r: r} :
+					{lat: place.lat, lon: place.lon, r: r});
+			}
+
+			drawSection();
+			estimate();
+		});
+
+		level.addEventListener('change', function()
+		{
+			levelChosen = true;
+			estimate();
+		});
+
+		function mercatorX(lon, z)
+		{
+			return (lon + 180) / 360 * 256 * Math.pow(2, z);
+		};
+
+		function mercatorY(lat, z)
+		{
+			var s = Math.sin(lat * Math.PI / 180);
+
+			return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z);
+		};
+
+		function getLon(x, z)
+		{
+			return x / (256 * Math.pow(2, z)) * 360 - 180;
+		};
+
+		function getLat(y, z)
+		{
+			var n = Math.PI * (1 - 2 * y / (256 * Math.pow(2, z)));
+
+			return Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))) * 180 / Math.PI;
+		};
+
+		function createSvg(name, attrs)
+		{
+			var node = document.createElementNS(svgNs, name);
+
+			for (var key in attrs)
+			{
+				node.setAttribute(key, attrs[key]);
+			}
+
+			return node;
+		};
+
+		/**
+		 * Shows the tiles of OpenStreetMap around the town with its limits,
+		 * or the circle that is loaded for places without limits, and the
+		 * section.
+		 */
+		function drawMap()
+		{
+			var w = map.clientWidth || 268;
+			var h = map.clientHeight || 200;
+			var b = osm.getBounds(place, null);
+			var zf = Math.log(Math.min((w - 16) / (mercatorX(b[3], 0) - mercatorX(b[1], 0)),
+				(h - 16) / (mercatorY(b[0], 0) - mercatorY(b[2], 0)))) / Math.LN2;
+			var z = Math.max(1, Math.min(18, Math.ceil(zf)));
+			var k = Math.pow(2, zf - z);
+			var cx = (mercatorX(b[1], z) + mercatorX(b[3], z)) / 2;
+			var cy = (mercatorY(b[0], z) + mercatorY(b[2], z)) / 2;
+			view = {z: z, w: w / k, h: h / k};
+			view.x = cx - view.w / 2;
+			view.y = cy - view.h / 2;
+			map.setAttribute('viewBox', [view.x, view.y, view.w, view.h].join(' '));
+			map.textContent = '';
+
+			var tiles = createSvg('g', {'class': 'tiles'});
+			var n = Math.pow(2, z);
+
+			for (var tx = Math.floor(view.x / 256); tx <= Math.floor((view.x + view.w) / 256); tx++)
+			{
+				for (var ty = Math.max(0, Math.floor(view.y / 256)); ty <= Math.min(n - 1,
+					Math.floor((view.y + view.h) / 256)); ty++)
+				{
+					tiles.appendChild(createSvg('image', {href: tileUrl + z + '/' + (((tx % n) + n) % n) + '/' + ty + '.png',
+						x: tx * 256, y: ty * 256, width: 256, height: 256}));
+				}
+			}
+
+			map.appendChild(tiles);
+
+			if (place.rings != null)
+			{
+				var d = place.rings.map(function(ring)
+				{
+					return 'M' + ring.map(function(p)
+					{
+						return mercatorX(p[0], z).toFixed(1) + ' ' + mercatorY(p[1], z).toFixed(1);
+					}).join('L') + 'Z';
+				}).join('');
+
+				map.appendChild(createSvg('path', {'class': 'boundary', d: d}));
+			}
+			else
+			{
+				map.appendChild(createSvg('circle', {'class': 'boundary radius', cx: mercatorX(place.lon, z),
+					cy: mercatorY(place.lat, z), r: place.radius / getMetersPerUnit(place.lat)}));
+			}
+
+			map.appendChild(createSvg('g', {'class': 'section-layer'}));
+			drawSection();
+		};
+
+		function getMetersPerUnit(lat)
+		{
+			return 2 * Math.PI * 6371008.8 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, view.z));
+		};
+
+		/**
+		 * Shows the given section or the current one on the map.
+		 */
+		function drawSection(s)
+		{
+			var layer = map.querySelector('.section-layer');
+			s = (s !== undefined) ? s : section;
+
+			if (layer != null)
+			{
+				layer.textContent = '';
+
+				if (s != null && s.bbox != null)
+				{
+					var x = mercatorX(s.bbox[1], view.z);
+					var y = mercatorY(s.bbox[2], view.z);
+					layer.appendChild(createSvg('rect', {'class': 'section', x: x, y: y,
+						width: mercatorX(s.bbox[3], view.z) - x, height: mercatorY(s.bbox[0], view.z) - y}));
+				}
+				else if (s != null)
+				{
+					layer.appendChild(createSvg('circle', {'class': 'section', cx: mercatorX(s.lon, view.z),
+						cy: mercatorY(s.lat, view.z), r: s.r / getMetersPerUnit(s.lat)}));
+				}
+			}
+		};
+
+		/**
+		 * Returns the map position of the given pointer event.
+		 */
+		function getMapPoint(evt)
+		{
+			var r = map.getBoundingClientRect();
+			var x = view.x + (evt.clientX - r.left) / r.width * view.w;
+			var y = view.y + (evt.clientY - r.top) / r.height * view.h;
+
+			return {x: x, y: y, px: evt.clientX, py: evt.clientY, lat: getLat(y, view.z), lon: getLon(x, view.z)};
+		};
+
+		function getRect(a, b)
+		{
+			return {bbox: [Math.min(a.lat, b.lat), Math.min(a.lon, b.lon), Math.max(a.lat, b.lat), Math.max(a.lon, b.lon)]};
+		};
+
+		/**
+		 * Returns the given section as in links, so that links load the same.
+		 */
+		function round(s)
+		{
+			var text = osm.getSectionText(s);
+
+			return (s.bbox != null) ? osm.parseSection(null, text) : osm.parseSection(text, null);
+		};
+
+		var down = null;
+		var dragging = false;
+
+		map.addEventListener('pointerdown', function(evt)
+		{
+			if (view != null && evt.button == 0)
+			{
+				down = getMapPoint(evt);
+				dragging = false;
+				map.setPointerCapture(evt.pointerId);
+				evt.preventDefault();
+			}
+		});
+
+		map.addEventListener('pointermove', function(evt)
+		{
+			if (down != null)
+			{
+				var p = getMapPoint(evt);
+				dragging = dragging || Math.abs(p.px - down.px) + Math.abs(p.py - down.py) > 6;
+
+				if (dragging)
+				{
+					drawSection(getRect(down, p));
+				}
+			}
+		});
+
+		map.addEventListener('pointerup', function(evt)
+		{
+			if (down != null)
+			{
+				var p = getMapPoint(evt);
+				var r = parseInt(sectionSelect.value);
+				section = round((dragging) ? getRect(down, p) : {lat: p.lat, lon: p.lon,
+					r: (isNaN(r)) ? ((section != null && section.r != null) ? section.r : defaultRadius) : r});
+				down = null;
+				updateSectionSelect();
+				drawSection();
+				estimate();
+			}
+		});
+
+		map.addEventListener('pointercancel', function()
+		{
+			down = null;
+			drawSection();
+		});
+
+		var resizeTimer = null;
+
+		window.addEventListener('resize', function()
+		{
+			window.clearTimeout(resizeTimer);
+
+			resizeTimer = window.setTimeout(function()
+			{
+				if (place != null && !placeBox.hidden && view != null && Math.abs(map.clientWidth - view.w) > 1)
+				{
+					drawMap();
+				}
+			}, 200);
+		});
+
+		/**
+		 * Shows the area and the estimated size of the network of the chosen
+		 * level and section, or that it is cached. Networks of more than
+		 * twice the limit are not loaded.
+		 */
+		function estimate()
+		{
+			var id = ++estimateId;
+			var b = osm.getBounds(place, section);
+			sizeText.classList.remove('warning');
+
+			if (b == null)
+			{
+				sizeText.textContent = 'The section is outside of ' + place.name + '. Click the map inside it.';
+				sizeText.classList.add('warning');
+				loadButton.disabled = true;
+
+				return;
+			}
+
+			if (!levelChosen)
+			{
+				level.value = getDefaultLevel();
+			}
+
+			var est = osm.estimate(place, section);
+			var junctions = est[level.value];
+			var max = osm.limits.junctions;
+			var text = ((place.rings == null) ? 'OpenStreetMap has no limits of ' + place.name +
+				', so the roads within ' + (place.radius / 1000).toFixed(1) + ' km of its center are loaded. ' : '') +
+				((section != null) ? 'Section' : place.name) + ': ' + ((est.area < 10) ? est.area.toFixed(1) :
+				format(est.area)) + ' km\u00b2, about ' + format(Math.max(1, Math.round(junctions / 10) * 10)) +
+				' junctions' + ((junctions > 2 * max) ? ', too many to load: choose main roads or a section.' :
+				((junctions > max) ? ', more than the ' + format(max) + ' that stay fast: choose main roads or a section.' :
+				'.'));
+			sizeText.textContent = text;
+			sizeText.classList.toggle('warning', junctions > max);
+			updateLink();
+			tooLarge = junctions > 2 * max;
+			loadButton.disabled = task != null || tooLarge;
+
+			osm.findCached(place, level.value, section).then(function(entry)
+			{
+				if (id == estimateId && entry != null)
+				{
+					sizeText.textContent = text + ' Loaded on ' + formatDate(entry.date) + ', opens without a download.';
+					tooLarge = false;
+					loadButton.disabled = task != null;
+				}
+			});
+		};
+
+		loadButton.addEventListener('click', function()
+		{
+			load(false);
+		});
+
+		/**
+		 * Loads, builds and opens the network of the chosen place, level and
+		 * section, from the cache unless fresh is true.
+		 */
+		function load(fresh, onError)
+		{
+			var p = place;
+			var l = level.value;
+			var s = section;
+			var t = startTask('Loading the roads of ' + p.name + '\u2026');
+			var start = Date.now();
+			var last = null;
+			infoText.hidden = true;
+
+			function showStatus()
+			{
+				if (last != null && task == t)
+				{
+					var secs = Math.round((Date.now() - start) / 1000);
+					var text = (last.pause > 0) ? 'All servers are busy, trying again\u2026' :
+						'Loading the roads from ' + last.server + ((last.bytes > 0) ? ': ' +
+						(last.bytes / 1e6).toFixed(1) + ' MB' : '') + '\u2026';
+
+					if (last.errors.length > 0)
+					{
+						text = last.errors[last.errors.length - 1] + '. ' + text;
+					}
+
+					statusText.textContent = text + ' ' + secs + ' s';
+				}
+			};
+
+			var timer = window.setInterval(showStatus, 1000);
+
+			osm.load(p, l, s, t.signal, function(status)
+			{
+				last = status;
+				showStatus();
+			}, fresh).then(function(entry)
+			{
+				window.clearInterval(timer);
+				statusText.textContent = 'Building the network\u2026';
+
+				// Paints the status before the work
+				return new Promise(function(resolve)
+				{
+					window.setTimeout(resolve, 30);
+				}).then(function()
+				{
+					return {entry: entry, result: osm.build(entry.data, p, l, s, {date: entry.dataDate || entry.date})};
+				});
+			}).then(function(r)
+			{
+				if (t.signal.aborted)
+				{
+					return;
+				}
+
+				var st = r.result.stats;
+				endTask(t);
+
+				if (r.result.empty)
+				{
+					showError('There are no ' + osm.levelNames[l].toLowerCase() + ' in ' +
+						((s != null) ? 'this section of ' : '') + p.name + '. Choose more roads or another section.');
+				}
+				else if (r.result.tooLarge)
+				{
+					showError('The network of ' + ((s != null) ? 'this section of ' : '') + p.name + ' has ' +
+						format(st.junctions) + ' junctions and ' + format(st.roads) + ' roads, more than the ' +
+						format(osm.limits.junctions) + ' junctions and ' + format(osm.limits.roads) +
+						' roads that stay fast. Choose main roads or a section on the map and Load again, ' +
+						'the roads are loaded already.');
+					sizeText.classList.add('warning');
+				}
+				else
+				{
+					statusText.textContent = 'Opening the network\u2026';
+
+					openFile(r.result.xml, p.name + '.drawio', function()
+					{
+						loaded = {place: p, level: l, section: s};
+						updateLink();
+						setUrl();
+
+						// Enough cars to see traffic on the roads
+						var cars = Math.max(100, Math.min(1500, Math.round(st.laneKm / 15) * 10));
+						sim.config.cars = cars;
+						document.getElementById('cars').value = cars;
+
+						showInfo(p, l, s, st, r.entry, cars);
+					});
+				}
+			})['catch'](function(e)
+			{
+				window.clearInterval(timer);
+
+				if (!t.signal.aborted)
+				{
+					endTask(t);
+					logError(e, 'loading ' + p.name);
+					showError('Could not load ' + p.name + ': ' + getMessage(e) + ((e.busy) ?
+						' Try again later, choose main roads or a smaller section.' : ''));
+
+					if (onError != null)
+					{
+						onError(e);
+					}
+				}
+			});
+		};
+
+		/**
+		 * Shows the size of the loaded network, where its data comes from
+		 * and a button to load it again from OpenStreetMap.
+		 */
+		function showInfo(p, l, s, st, entry, cars)
+		{
+			infoText.textContent = '';
+
+			function count(n, name)
+			{
+				return format(n) + ' ' + name + ((n == 1) ? '' : 's');
+			};
+
+			var parts = [count(st.junctions, 'junction'), count(st.roads, 'road')];
+
+			if (st.lights > 0)
+			{
+				parts.push(count(st.lights, 'traffic light'));
+			}
+
+			if (st.roundabouts > 0)
+			{
+				parts.push(count(st.roundabouts, 'roundabout'));
+			}
+
+			infoText.appendChild(document.createTextNode(osm.levelNames[l] + ' of ' + ((s != null) ?
+				'a section of ' : '') + p.name + ': ' + parts.join(', ') + ' and ' + format(st.gates) +
+				' entries and exits at the ' + ((s != null) ? 'section' : ((p.rings != null) ? 'town limits' :
+				'circle')) + ', where half of the ' +
+				format(cars) + ' cars start or end. Roads of ' + formatDate(entry.dataDate || entry.date) +
+				' from ' + entry.server + ((entry.cached) ? ', loaded on ' + formatDate(entry.date) + '. ' : '. ')));
+			var reload = document.createElement('button');
+			reload.type = 'button';
+			reload.className = 'link';
+			reload.textContent = 'Load again';
+			reload.title = 'Load the roads again from OpenStreetMap';
+
+			reload.addEventListener('click', function()
+			{
+				choose(p, l, s);
+				load(true);
+			});
+
+			if (entry.cached)
+			{
+				infoText.appendChild(reload);
+			}
+
+			infoText.hidden = false;
+		};
+
+		/**
+		 * Copy Link copies the loaded town while the panel shows it.
+		 */
+		function updateLink()
+		{
+			linkButton.disabled = loaded == null || place == null || loaded.place.key != place.key ||
+				loaded.level != level.value || osm.getSectionText(loaded.section) != osm.getSectionText(section);
+		};
+
+		/**
+		 * Puts the loaded town into the URL.
+		 */
+		function setUrl()
+		{
+			clearUrl();
+
+			if (loaded != null)
+			{
+				params.set('city', loaded.place.name);
+				params.set('osm', loaded.place.key);
+				params.set('roads', loaded.level);
+
+				if (loaded.section != null)
+				{
+					params.set((loaded.section.bbox != null) ? 'bbox' : 'circle', osm.getSectionText(loaded.section));
+				}
+			}
+
+			writeParams();
+		};
+
+		function clearUrl()
+		{
+			['city', 'osm', 'roads', 'circle', 'bbox'].forEach(function(key)
+			{
+				params['delete'](key);
+			});
+		};
+
+		linkButton.addEventListener('click', function()
+		{
+			setUrl();
+			var url = window.location.href;
+
+			function copied(ok)
+			{
+				linkButton.textContent = (ok) ? 'Copied' : 'Copy Link';
+
+				if (ok)
+				{
+					window.setTimeout(function()
+					{
+						linkButton.textContent = 'Copy Link';
+					}, 2000);
+				}
+				else
+				{
+					window.prompt('Link to this town', url);
+				}
+			};
+
+			if (navigator.clipboard != null && navigator.clipboard.writeText != null)
+			{
+				navigator.clipboard.writeText(url).then(function()
+				{
+					copied(true);
+				}, function()
+				{
+					copied(false);
+				});
+			}
+			else
+			{
+				copied(false);
+			}
+		});
+
+		linkButton.disabled = true;
+
+		/**
+		 * Loads the town of ?osm=<type>/<id> or ?city=<name>, with roads and
+		 * the section of circle or bbox. Opens the example if that fails.
+		 */
+		function loadFromUrl()
+		{
+			var key = params.get('osm');
+			var name = params.get('city');
+			var roads = (osm.levels.indexOf(params.get('roads')) >= 0) ? params.get('roads') : null;
+			var s = osm.parseSection(params.get('circle'), params.get('bbox'));
+			var label = name || key;
+			var t = startTask('Finding ' + label + '\u2026');
+			query.value = name || '';
+
+			function fail(e)
+			{
+				showError('Could not open ' + label + ' from the link: ' + getMessage(e));
+
+				// Keeps the town in the URL to try again
+				if (ui.isDiagramEmpty())
+				{
+					openExample('small', true);
+				}
+			};
+
+			((key != null) ? osm.lookup(key, t.signal) : osm.search(name, t.signal, true).then(function(list)
+			{
+				if (list.length == 0)
+				{
+					throw new Error('OpenStreetMap has no town or city of this name.');
+				}
+				else if (list.length > 1)
+				{
+					showMatches(list.slice(1), 'Loads ' + getDetail(list[0]) + '. Other places of this name:');
+				}
+
+				return osm.lookup(list[0].key, t.signal);
+			})).then(function(p)
+			{
+				endTask(t);
+				choose(p, roads, s);
+				load(false, fail);
+			})['catch'](function(e)
+			{
+				if (!t.signal.aborted)
+				{
+					endTask(t);
+					fail(e);
+				}
+			});
+		};
+
+		return {loadFromUrl: loadFromUrl, clear: function()
+		{
+			loaded = null;
+			linkButton.disabled = true;
+			infoText.hidden = true;
+			clearUrl();
+			writeParams();
+		}};
+	};
+
+	/**
 	 * Fits the whole diagram into the window. Diagrams that need less than
 	 * the smallest zoom step of draw.io, which rounds to 1 %, get the exact
 	 * scale and are centered.
@@ -706,7 +1671,7 @@
 	 * openLocalFile opens files in a new window if the diagram is not empty,
 	 * and fits the whole diagram into the window.
 	 */
-	function openFile(xml, name)
+	function openFile(xml, name, onLoad)
 	{
 		var win = frame.contentWindow;
 		var file = ui.getCurrentFile();
@@ -715,6 +1680,11 @@
 		{
 			ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
 			fitDiagram();
+
+			if (onLoad != null)
+			{
+				onLoad();
+			}
 		};
 
 		if (file != null && file.isModified())
@@ -728,7 +1698,7 @@
 		}
 	};
 
-	function openExample(name)
+	function openExample(name, keepTown)
 	{
 		fetch('data/' + name + '.drawio').then(function(response)
 		{
@@ -740,7 +1710,13 @@
 			return response.text();
 		}).then(function(xml)
 		{
-			openFile(xml, name + '.drawio');
+			openFile(xml, name + '.drawio', function()
+			{
+				if (town != null && !keepTown)
+				{
+					town.clear();
+				}
+			});
 		})['catch'](function(e)
 		{
 			ui.handleError(e);

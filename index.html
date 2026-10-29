@@ -12,7 +12,8 @@
 <aside id="panel" class="panel" aria-label="Simulation">
 	<header>
 		<h1>Traffic Simulation</h1>
-		<p>Draw a road network in the editor and start the cars.</p>
+		<p>Draw a road network in the editor and start the cars, or
+			<a id="town-jump" href="#town">load your town</a>.</p>
 	</header>
 	<section>
 		<div class="buttons">
@@ -91,8 +92,53 @@
 			<p id="lanes-hint" class="hint" hidden>Select one road to set its lanes one by one.</p>
 		</div>
 	</section>
-	<section>
+	<section id="town">
 		<h2>Network</h2>
+		<form id="town-form" class="search" role="search">
+			<label for="town-query">Load your town</label>
+			<div class="search-row">
+				<input id="town-query" type="search" placeholder="Town or city" autocomplete="off"
+					enterkeyhint="search" aria-describedby="town-hint" aria-controls="town-matches" disabled>
+				<button id="town-search" type="submit" disabled>Search</button>
+			</div>
+		</form>
+		<p id="town-hint" class="hint">Roads from OpenStreetMap inside the town limits. Pick a
+			section of large cities.</p>
+		<ul id="town-matches" class="matches" aria-label="Matching places" hidden></ul>
+		<div id="town-place" hidden>
+			<p class="place"><strong id="town-name"></strong> <span id="town-kind"></span></p>
+			<svg id="town-map" class="town-map" role="img" aria-label="Map of the town"></svg>
+			<p id="town-map-hint" class="hint">Click the map to load a circle around a point, drag to
+				load a rectangle.</p>
+			<label class="row"><span>Roads</span><select id="town-level">
+				<option value="main">Main roads</option>
+				<option value="collector">Main and collector</option>
+				<option value="all">All streets</option>
+			</select></label>
+			<label class="row"><span>Section</span><select id="town-section">
+				<option value="">Whole town</option>
+				<option value="1000">Circle of 1 km</option>
+				<option value="2000">Circle of 2 km</option>
+				<option value="3000">Circle of 3 km</option>
+				<option value="5000">Circle of 5 km</option>
+				<option value="rect" hidden>Rectangle</option>
+			</select></label>
+			<p id="town-size" class="hint" aria-live="polite"></p>
+			<div class="buttons">
+				<button id="town-load" type="button" class="primary">Load</button>
+				<button id="town-link" type="button" disabled>Copy Link</button>
+			</div>
+		</div>
+		<div id="town-progress" class="progress" hidden>
+			<span class="spinner" aria-hidden="true"></span>
+			<span id="town-status" role="status"></span>
+			<button id="town-cancel" type="button">Cancel</button>
+		</div>
+		<p id="town-error" class="error" role="alert" hidden></p>
+		<p id="town-info" class="hint" hidden></p>
+		<p class="hint attribution">Towns, roads and maps &copy;
+			<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap
+			contributors</a>.</p>
 		<label class="row"><span>Example</span><select id="example" disabled>
 			<option value="">Choose…</option>
 		</select></label>
@@ -125,6 +171,7 @@
 	<iframe id="editor" title="Diagram editor"
 		data-src="drawio/src/main/webapp/index.html?offline=0&amp;local=1&amp;splash=0&amp;stealth=1&amp;ui=simple&amp;sidebar=0&amp;format=0&amp;dark=auto"></iframe>
 </main>
+<script src="js/osm.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

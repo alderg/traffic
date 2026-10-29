@@ -6,7 +6,8 @@ Try it at https://www.alderg.com/traffic/.
 This is a port of sim.traffic, a traffic simulation written in Java at ETH
 Zurich in 2000, to the browser. The road network is a draw.io diagram, so
 you can draw, edit, open and save it with the full editor while the cars
-are driving.
+are driving. The road network of your own town comes from OpenStreetMap,
+see [Loading Your Town](#loading-your-town).
 
 ## Drawing Roads
 
@@ -65,6 +66,13 @@ are driving.
   the inline toolbar and the waypoints menu, and their lanes, markings and
   cars follow the waypoints and curves. Rounded corners of roads start at
   least as far from the corner as the road is wide.
+- `maxSpeed=50` in the style of a road is its speed limit in km/h, as cells
+  per step (rounded, at least 27 km/h). Without it, vehicles drive up to
+  Max. speed.
+- `gate=1` in the style of a junction makes it an entry and exit of the
+  network: half of the cars start at a gate and half end at one, so that
+  traffic flows in and out there. Loaded towns have gates where their roads
+  leave the town.
 - 1 unit is 1 meter and 1 step is 1 second.
 
 Changes to the diagram take effect while the simulation is running. Cars on
@@ -76,7 +84,7 @@ Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
 accelerate, brake to the gap, dawdle, move. Vehicles have their own top
 speed: trucks 2 cells per step below Max. speed, cars Max. speed and fast
 cars 1 cell per step above it, with the shares of trucks and fast cars in
-the panel. Faster vehicles queue behind slower ones on roads with one lane
+the panel, and at most the speed limit of the road. Faster vehicles queue behind slower ones on roads with one lane
 and pass them where there is a free lane. Vehicles are painted from above
 as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
 along their lane, turned in their direction through curves, crossings,
@@ -96,8 +104,8 @@ into the next and drives through at its speed in all lanes, without the
 turns of the lanes, and cars that start there wait for a gap. Roundabouts are rings of lanes of cells at one cell
 per step; cars enter the outer lane when it is free before the entry, move
 inward for exits far away and back out before their exit, and leave where
-their next road starts. Cars drive from a random junction to another on
-the fastest route under the current speeds with the turns that the lanes
+their next road starts. Cars drive from a random junction to another, half
+of them from or to a gate if there are gates, on the fastest route under the current speeds with the turns that the lanes
 allow (Dijkstra on the roads) and look for another route after waiting 60
 seconds at a junction. Cars that have not arrived 5 minutes after they
 started, or four times the time of their route without other cars if that
@@ -107,6 +115,149 @@ statistics count them as not arrived, and the debug output lists them.
 The examples are the networks of the Java version: Small, Race, Axhausen and
 Portland (8548 crossings). `tools/net2drawio.py` converts its `.net` files,
 and the Import button inserts them into the current diagram.
+
+## Loading Your Town
+
+Under Network, Load your town loads the roads of a town or city from
+[OpenStreetMap](https://www.openstreetmap.org):
+
+- Type the name: suggestions appear while typing, Enter or Search looks the
+  name up. Pick the place from the matches if there are several, eg. for
+  Springfield.
+- A small map shows the town limits: the administrative boundary of the
+  place, or for places without one (villages that are only a node) a circle
+  of 0.5 to 5 km around the center by the kind of place, which the panel
+  says. Click the map to load only a circle of 1 to 5 km (Section) around
+  that point, or drag a rectangle.
+- Roads chooses the road classes: Main roads (motorway, trunk, primary,
+  secondary and tertiary roads with their links), Main and collector
+  (also unclassified roads) or All streets (also residential streets and
+  living streets). Footways, cycleways, paths, service roads, areas and
+  roads without access for cars are never loaded. Towns with up to about
+  3,000 junctions of all streets get all streets, larger ones main and
+  collector roads, and the largest main roads.
+- The panel estimates the junctions from the area and the population.
+  Above 9,000 junctions it warns, above twice as many it does not load:
+  choose main roads or a section. After loading, networks with more than
+  9,000 junctions or 12,000 roads are not opened either, with their size;
+  a section or fewer roads are then built from the loaded roads without
+  loading again. Portland, the largest example with 8,548 crossings and
+  11,166 roads, opens in about 4 s, and a town at the limit about as fast.
+- Load shows its progress (the server, the MB loaded, the seconds) with a
+  Cancel button, builds the network and opens it, and sets Cars for its
+  size (1 per 1.5 km of lanes, 100 to 1,500). Copy Link copies a link to
+  the town, which opens it at start.
+- Loaded towns are kept in the browser (IndexedDB) with the date and the
+  query, the 12 last, so that a reload or a link opens them without
+  loading again, also a section of a loaded town. Load again loads the
+  roads of a cached town again.
+
+The URL of the page has the town: `?city=Zürich` looks the name up and
+opens the first match, `?osm=relation/1682248` opens that place of
+OpenStreetMap (`node/`, `way/` or `relation/`), which links use with the
+name. `roads=main`, `collector` or `all` sets the roads, `circle=<lat>,<lon>,<m>`
+or `bbox=<south>,<west>,<north>,<east>` the section, eg.
+`?city=Los%20Angeles&osm=relation/207359&roads=main&circle=34.05,-118.25,5000`.
+Errors are shown in the panel, which then opens the Small example.
+
+The network is built like `tools/net2drawio.py` builds the examples, in
+units of 1 m around the center of the town with north at the top:
+
+- Junctions are the nodes that several ways share and the ends of ways.
+  The chain of ways and nodes between two junctions is one road with the
+  shape of the ways as its waypoints, simplified to 4 m, so that the
+  network stays as small as the junctions allow.
+- Roads keep `oneway` (also implied on motorways and roundabouts, and `-1`),
+  the lanes per direction from `lanes`, `lanes:forward` and
+  `lanes:backward` without bus and center lanes (1 to 4, motorways and
+  trunk roads 2 by default) and `maxspeed` (also `mph`, `none`, `walk` and
+  zones such as `CH:urban`, else 120 km/h on motorways, 100 on trunk roads,
+  10 on living streets and 50 on the others) as `maxSpeed`.
+- Closed rings of `junction=roundabout` become roundabouts, with their roads
+  connected to them. Junctions of three or more roads with
+  `highway=traffic_signals` on them or on a road to them within 45 m are
+  traffic lights.
+- Junctions joined by roads shorter than 20 m become one junction, at most
+  40 m wide, eg. the crossings of dual carriageways, and two one-way roads
+  in opposite directions between the same junctions that run side by side
+  one road in both directions.
+- Roads are cut where they leave the town, 25 m outside the boundary so
+  that roads along it stay whole, or the section, and the cut ends are
+  gates. Parts that are not connected to the rest with fewer roads than 1 %
+  of all, at least 5 and at most 50, are dropped, and so are dead ends
+  shorter than 20 m.
+- The text below the network credits OpenStreetMap with the date of the
+  data and links to its copyright page.
+
+Traffic drives on the right in all towns, and turn lanes are not loaded.
+
+Tested on 2026-10-29: Zug (all streets) 460 junctions, Bern (all streets)
+2,450 junctions and 158 traffic lights, Zurich (all streets) 4,762
+junctions, which open in 3.5 s, a circle of 3 km in Berlin (main and
+collector) 720 junctions, and a circle of 5 km in Los Angeles (all
+streets) 3,828 junctions. All of Los Angeles is not loaded: its main roads
+alone have 22,050 junctions. The towns are built in 0.1 s (Zurich) to
+1.7 s (all of Los Angeles) after loading.
+
+`tools/osm2drawio.js` builds the same network in Node from saved answers of
+Nominatim and Overpass, eg. for new examples or tests:
+
+```bash
+node tools/osm2drawio.js --roads all --query lookup.json   # prints the Overpass query
+node tools/osm2drawio.js --roads all lookup.json overpass.json town.drawio
+```
+
+### OpenStreetMap Data
+
+The browser loads all data directly, as all services send
+`Access-Control-Allow-Origin: *` and the requests need no preflight
+(Overpass gets a form-encoded POST). As of October 2026:
+
+- **Nominatim** (nominatim.openstreetmap.org) finds the town on submit
+  (`featureType=settlement`, without states and countries) and returns its
+  boundary (`lookup` with `polygon_geojson=1` and `polygon_threshold=0.0001`,
+  about 10 m, 250 to 1,300 points for Zug, Zurich, Berlin and Los
+  Angeles). Its [policy](https://operations.osmfoundation.org/policies/nominatim/)
+  allows at most one request per second, which the page keeps, and no
+  autocomplete; browsers identify the site with the Referer. Results and
+  boundaries are cached.
+- **Photon** (photon.komoot.io) suggests places while typing, from 3
+  characters and 350 ms after the last key, under fair use.
+- **Overpass API** loads the roads: the ways of the road classes in the
+  bounding box of the town or section with their tags and nodes, the
+  coordinates of the nodes and the nodes with traffic signals
+  (`[timeout:180]`, the default of Overpass, `out body qt` and `out skel qt`).
+  A bounding box is faster for the servers than an area filter and the page
+  needs the boundary to cut the roads anyway. Overpass answers runtime
+  errors such as timeouts with status 200 and a `remark`, a full server with
+  502 or 504 and too many queries of the same address with 429. The page
+  tries overpass-api.de, overpass.private.coffee and maps.mail.ru in turn,
+  starting with the last that answered, waits up to 60 s for data from
+  each, and after a pause of 10 s tries all again with 120 s, then reports
+  the errors. Measured on 2026-10-29: Zug (all streets) 42 s and 1.6 MB,
+  Bern (all streets) 33 to 39 s and 6.8 MB, Zurich (main and collector)
+  33 s and 5.9 MB, (all streets) 36 s and 12 MB, and Los Angeles (main and
+  collector) 40 s and 62 MB; overpass-api.de often answered 502 at
+  capacity, overpass.private.coffee often not within 200 s and maps.mail.ru
+  sometimes 504 after 50 s. A count query took 36 to 78 s, as long as
+  loading the roads, so the size is estimated instead.
+  overpass.osm.jp (certificate), overpass.kumi.systems and
+  overpass.openstreetmap.ru (no answer) are not used, nor
+  overpass.openstreetmap.fr, which answers fast with data from August 2026
+  but whose wiki page says it stopped in 2022 and which refuses headless
+  browsers as not "white-listed".
+- **Tiles** of the small map come from tile.openstreetmap.org, a few per
+  town, under its [tile policy](https://operations.osmfoundation.org/policies/tiles/).
+- The data is © OpenStreetMap contributors under the
+  [ODbL](https://www.openstreetmap.org/copyright). The panel, the map and
+  the text in each loaded network say so.
+
+[anvaka/city-roads](https://github.com/anvaka/city-roads) also loads whole
+cities in the browser: it looks the name up with Nominatim, queries
+`way[highway](area)` with `out skel` from the area of the boundary on one
+server and the next on errors, without paging or a pause, and keeps the
+roads as lines. Here the roads become a network for the simulation, with
+the limits of the town, a section and the road classes to keep it small.
 
 ## Running Locally
 
@@ -153,6 +304,10 @@ then writes its own debug messages and has a Develop menu.
   fixed connection points, roads connect to their outline. It connects the ends of
   roads that are dropped on junctions. Other draw.io apps paint roads as
   plain connectors.
+- `js/osm.js` finds towns, loads and caches their roads from OpenStreetMap
+  and builds their networks as draw.io files, which the page opens like the
+  examples (see [Loading Your Town](#loading-your-town)). It runs in the
+  page, not in the editor, and in Node for `tools/osm2drawio.js`.
 - `js/simulation.js` builds the network from the cells of the current page,
   runs the model and paints the vehicles, the density of the lanes and the
   traffic lights into the overlay pane of the graph. Each vehicle is one
