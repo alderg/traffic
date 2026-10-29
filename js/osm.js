@@ -557,10 +557,10 @@ var TrafficOsm = (function()
 	 * Calls onStatus with the server, the bytes loaded so far and the
 	 * errors of the servers before.
 	 */
-	function overpass(query, signal, timeout, onStatus)
+	function overpass(query, signal, timeout, onStatus, rounds)
 	{
 		var errors = [];
-		var rounds = 2;
+		rounds = rounds || 2;
 		var attempt = 0;
 
 		function next()
@@ -770,7 +770,8 @@ var TrafficOsm = (function()
 
 		var query = '[out:json][timeout:120][bbox:' + m[1] + '];' + getZoneQuery();
 
-		return overpass(query, signal, 60000, onStatus).then(function(json)
+		// One round of 20 s per server, as the town waits for it
+		return overpass(query, signal, 20000, onStatus, 1).then(function(json)
 		{
 			entry.data.zones = compact(json).zones || createZones();
 
@@ -785,8 +786,24 @@ var TrafficOsm = (function()
 				throw e;
 			}
 
-			return entry;
+			// Opens the town without zones and tries again a day later
+			entry.zonesTried = new Date().toISOString();
+
+			return ((entry.key != null) ? cachePut('towns', entry.key, entry) : Promise.resolve()).then(function()
+			{
+				return entry;
+			});
 		});
+	};
+
+	/**
+	 * Returns true if the given cached town has no zones and did not try to
+	 * load them in the last day.
+	 */
+	function needsZones(entry)
+	{
+		return entry.data.zones == null && (entry.zonesTried == null ||
+			Date.now() - new Date(entry.zonesTried).getTime() > 864e5);
 	};
 
 	/**
@@ -809,7 +826,7 @@ var TrafficOsm = (function()
 			{
 				entry.cached = true;
 
-				return (entry.data.zones == null) ? loadZones(entry, signal, onStatus) : entry;
+				return (needsZones(entry)) ? loadZones(entry, signal, onStatus) : entry;
 			}
 
 			var query = getQuery(bounds, level);

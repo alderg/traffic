@@ -490,7 +490,9 @@ Under Network, Load your town loads the roads of a town or city from
   `jobs` in their style): an area fills 60 % of its bounding box and is
   shared by the junctions in it, else goes to the nearest junction within
   300 m, like a place. Towns that were cached before zones get them with
-  one query of their own when they open. Zurich (main and collector) has
+  one query of their own when they open, which waits at most 20 s per
+  server; without an answer the town opens without zones and tries again a
+  day later. Zurich (main and collector) has
   266 land use areas and 8,371 places, Zug 30 and 580; the zones add 13 ms
   to the build of Zurich (25 to 38 ms) and 2 % to its file.
 
