@@ -6791,6 +6791,9 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			updateStats();
 		}
+
+		// Center selected car starts also while the simulation is paused
+		schedule();
 	};
 
 	/**
