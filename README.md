@@ -72,6 +72,12 @@ on Android, still enlarges the whole page.
   when they enter.
 - Ends of roads that are dragged or dropped within 8 units of a crossing
   connect to it, so that the small crossings are easy to hit.
+- Roads connect to the outline of their junctions. Waypoints of a road that
+  lie inside the junction at either end, eg. when a traffic light becomes a
+  larger roundabout, are skipped: the road enters the junction from its
+  first waypoint outside, in the drawing and for the cars. The waypoints
+  stay in the diagram, so that the road looks as before when the junction
+  gets smaller again, and their handles are hidden meanwhile.
 - Free ends of roads join the junction they are on or other free ends
   nearby, else cars can start and end there.
 - The Selection section of the panel shows the selected junctions and
@@ -786,9 +792,14 @@ then writes its own debug messages and has a Develop menu.
   palettes of junctions and roads. Crossings with roads are painted as the
   asphalt between the ends of their roads with rounded corners and edge
   lines, traffic lights a bit wider with a small icon. Junctions have no
-  fixed connection points, roads connect to their outline. It connects the ends of
-  roads that are dropped on junctions. Other draw.io apps paint roads as
-  plain connectors.
+  fixed connection points, roads connect to their outline. Waypoints of
+  roads inside the junction at either end are skipped in the points of the
+  view (`hiddenPoints` of the edge state, which lie on the point before
+  them, with their handles hidden), so that the shapes and the network of
+  the simulation, which both read these points, enter the junction from the
+  first waypoint outside, while the diagram keeps the waypoints. It
+  connects the ends of roads that are dropped on junctions. Other draw.io
+  apps paint roads as plain connectors.
 - `js/osm.js` finds towns, loads and caches their roads and zones from
   OpenStreetMap and builds their networks as draw.io files, with the homes
   and jobs of the zones on their junctions, which the page opens like the

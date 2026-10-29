@@ -37,6 +37,11 @@
  * roads within connectPadding around their bounds, so that the small
  * crossings are easy to hit, without changing how they look. Junctions have
  * no fixed connection points, roads always connect to their outline.
+ * Waypoints of roads inside the junction at either end, eg. after a
+ * crossing became a larger roundabout, are skipped in the points of the
+ * view, so that the shapes and the simulation enter the junction from the
+ * first waypoint outside. The waypoints stay in the diagram for when the
+ * junction gets smaller again, and their handles are hidden.
  *
  * Default colors are light-dark pairs with the same color on both sides, so
  * that the dark mode of the editor does not invert them. The asphalt that
@@ -935,6 +940,207 @@ window.TrafficRoads = function(ui)
 		}
 
 		return getPerimeterFunction.apply(this, arguments);
+	};
+
+	/**
+	 * Returns a function that returns true for points in screen coordinates
+	 * inside the outline of the given terminal state at the given end of the
+	 * given edge state, where the edge ends on the outline towards the point,
+	 * or null if the terminal is no vertex.
+	 */
+	function getInsideTest(view, edge, terminal, source)
+	{
+		if (terminal == null || !view.graph.model.isVertex(terminal.cell))
+		{
+			return null;
+		}
+
+		terminal = view.getTerminalPort(edge, terminal, source);
+		var center = new mxPoint(terminal.getCenterX(), terminal.getCenterY());
+		var alpha = mxUtils.toRadians(Number(terminal.style[mxConstants.STYLE_ROTATION] || '0'));
+		var border = (parseFloat(edge.style[mxConstants.STYLE_PERIMETER_SPACING]) || 0) +
+			(parseFloat(edge.style[(source) ? mxConstants.STYLE_SOURCE_PERIMETER_SPACING :
+			mxConstants.STYLE_TARGET_PERIMETER_SPACING]) || 0);
+		var bounds = view.getPerimeterBounds(terminal, border);
+		var far = bounds.width + bounds.height + 1;
+
+		// Outlines are within the perimeter bounds, except for labels outside
+		// and the asphalt of crossings
+		var max = (mxUtils.getValue(terminal.style, mxConstants.STYLE_LABEL_PERIMETER, 0) == 1) ? Infinity :
+			Math.max(far / 2, (roads.getCrossingRadius(terminal) || 0) * view.scale + 1);
+
+		return function(pt)
+		{
+			var d = roads.getDistance(center, pt);
+
+			if (d >= max)
+			{
+				return false;
+			}
+
+			// Perimeters expect a point outside, so the outline is found along
+			// the ray through the point from far away
+			var next = (alpha != 0) ? mxUtils.getRotatedPoint(pt, Math.cos(-alpha), Math.sin(-alpha), center) : pt;
+			var end = view.getPerimeterPoint(terminal, (d > 0) ? new mxPoint(center.x + (next.x - center.x) / d * far,
+				center.y + (next.y - center.y) / d * far) : new mxPoint(center.x + far, center.y), false, border);
+
+			return end != null && d < roads.getDistance(center, end) - 0.01 * view.scale;
+		};
+	};
+
+	var updatePoints = graph.view.updatePoints;
+
+	/**
+	 * Leaves out the waypoints of roads that are inside the junction at
+	 * either end, eg. after a crossing became a larger roundabout, so that
+	 * roads enter their junctions from the first waypoint outside, in the
+	 * shapes and the simulation, which read the points of the view. The
+	 * waypoints stay in the model for when the junction gets smaller. The
+	 * points of the view keep one point per waypoint for the handles, with
+	 * hiddenPoints true for those inside, which lie on the point before them
+	 * (see updateFloatingTerminalPoints). Routed roads leave them out of the
+	 * routing instead.
+	 */
+	graph.view.updatePoints = function(edge, points, source, target)
+	{
+		var view = this;
+		var tests = (edge != null && edge.style != null && edge.style[mxConstants.STYLE_SHAPE] == 'road' &&
+			points != null && points.length > 0) ? [getInsideTest(this, edge, source, true),
+			getInsideTest(this, edge, target, false)].filter(function(test)
+			{
+				return test != null;
+			}) : [];
+		var road = tests.length > 0;
+
+		function isInside(pt)
+		{
+			return tests.some(function(test)
+			{
+				return test(pt);
+			});
+		};
+
+		if (road && this.getEdgeStyle(edge, points, source, target) != null)
+		{
+			points = points.filter(function(pt)
+			{
+				return pt == null || !isInside(view.transformControlPoint(edge, pt));
+			});
+			road = false;
+		}
+
+		if (edge != null)
+		{
+			edge.hiddenPoints = null;
+		}
+
+		updatePoints.call(this, edge, points, source, target);
+		var pts = (road) ? edge.absolutePoints : null;
+
+		if (pts != null)
+		{
+			var hidden = [];
+			var found = false;
+
+			for (var i = 0; i < pts.length; i++)
+			{
+				hidden.push(i > 0 && i < pts.length - 1 && isInside(pts[i]));
+				found = found || hidden[i];
+			}
+
+			edge.hiddenPoints = (found) ? hidden : null;
+		}
+	};
+
+	var getNextPoint = graph.view.getNextPoint;
+
+	/**
+	 * Floating ends of roads point to the first waypoint that is not hidden.
+	 */
+	graph.view.getNextPoint = function(edge, opposite, source)
+	{
+		var pts = edge.absolutePoints;
+		var hidden = edge.hiddenPoints;
+
+		if (hidden != null && pts != null && hidden.length == pts.length)
+		{
+			var i = (source) ? 1 : pts.length - 2;
+
+			while (hidden[i])
+			{
+				i += (source) ? 1 : -1;
+			}
+
+			return (pts[i] == null && opposite != null) ?
+				new mxPoint(opposite.getCenterX(), opposite.getCenterY()) : pts[i];
+		}
+
+		return getNextPoint.apply(this, arguments);
+	};
+
+	var updateFloatingTerminalPoints = graph.view.updateFloatingTerminalPoints;
+
+	/**
+	 * Moves the hidden waypoints of roads onto the point before them once the
+	 * ends are known, so that the path of the road skips them.
+	 */
+	graph.view.updateFloatingTerminalPoints = function(state, source, target)
+	{
+		updateFloatingTerminalPoints.apply(this, arguments);
+		var pts = state.absolutePoints;
+		var hidden = state.hiddenPoints;
+
+		if (hidden != null && pts != null && hidden.length == pts.length)
+		{
+			for (var i = 1; i < pts.length - 1; i++)
+			{
+				if (hidden[i] && pts[i - 1] != null)
+				{
+					pts[i] = pts[i - 1].clone();
+				}
+			}
+		}
+	};
+
+	var updatePreviewState = mxEdgeHandler.prototype.updatePreviewState;
+
+	/**
+	 * Keeps the hidden waypoints of the preview while a road is edited.
+	 */
+	mxEdgeHandler.prototype.updatePreviewState = function(edge)
+	{
+		updatePreviewState.apply(this, arguments);
+		this.hiddenPreview = {points: edge.absolutePoints, hidden: edge.hiddenPoints};
+	};
+
+	var redrawHandles = mxEdgeHandler.prototype.redrawHandles;
+
+	/**
+	 * Hides the handles of hidden waypoints and of the segments that end at
+	 * them, which are on the point before them.
+	 */
+	mxEdgeHandler.prototype.redrawHandles = function()
+	{
+		redrawHandles.apply(this, arguments);
+		var pts = this.abspoints;
+		var hidden = (this.hiddenPreview != null && this.hiddenPreview.points == pts) ?
+			this.hiddenPreview.hidden : ((this.state != null) ? this.state.hiddenPoints : null);
+
+		if (hidden != null && pts != null && hidden.length == pts.length)
+		{
+			for (var i = 1; i < pts.length - 1; i++)
+			{
+				if (hidden[i] && this.bends != null && this.bends.length == pts.length && this.bends[i] != null)
+				{
+					this.bends[i].node.style.visibility = 'hidden';
+				}
+
+				if (hidden[i] && this.virtualBends != null && this.virtualBends[i - 1] != null)
+				{
+					this.virtualBends[i - 1].node.style.visibility = 'hidden';
+				}
+			}
+		}
 	};
 
 	/**
