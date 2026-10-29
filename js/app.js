@@ -44,6 +44,8 @@
 	var updateSelection = null;
 	var town = null;
 	var map = null;
+	var legendBar = null;
+	var legendStops = null;
 	var tiles = getTiles();
 	var vehicleSection = document.getElementById('vehicle');
 	var vehicleRows = vehicleSection.querySelector('tbody');
@@ -172,15 +174,18 @@
 		var hint = document.getElementById('map-hint');
 		checkbox.checked = map.isVisible();
 
+		// The vehicles get darker colors on the light map
 		function update(available)
 		{
 			checkbox.disabled = !available;
 			hint.hidden = available;
+			sim.setOption('mapBackground', available && map.isVisible());
 		};
 
 		checkbox.addEventListener('change', function()
 		{
 			map.setVisible(checkbox.checked);
+			sim.setOption('mapBackground', map.isAvailable() && map.isVisible());
 		});
 
 		map.addListener(update);
@@ -393,6 +398,22 @@
 		}
 
 		updateVehicle();
+		updateLegend();
+	};
+
+	/**
+	 * Shows the colors of the speeds that the vehicles have now, which depend
+	 * on the theme and the map background.
+	 */
+	function updateLegend()
+	{
+		var stops = (legendBar != null) ? sim.getSpeedStops().join(', ') : null;
+
+		if (stops != null && stops != legendStops)
+		{
+			legendStops = stops;
+			legendBar.style.background = 'linear-gradient(to right, ' + stops + ')';
+		}
 	};
 
 	/**
@@ -1843,7 +1864,8 @@
 		scale.appendChild(document.createTextNode('Speed 0'));
 		var bar = document.createElement('span');
 		bar.className = 'bar';
-		bar.style.background = 'linear-gradient(to right, ' + sim.speedStops.join(', ') + ')';
+		legendBar = bar;
+		updateLegend();
 		scale.appendChild(bar);
 		scale.appendChild(topSpeed);
 		types.appendChild(scale);

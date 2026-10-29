@@ -99,7 +99,13 @@ as a car, a longer truck with a cab and a sleeker fast car with a spoiler,
 along their lane, turned in their direction through curves, crossings,
 roundabouts and lane changes, and in the color of their speed from blue
 when they stand over violet and magenta to red for the fastest, as in the
-legend of the panel. Cars keep their lane. They change to the next lane
+legend of the panel. The road is the same mid-gray (#5f6368) in both
+themes, so the vehicles on it are light (#71bfff, #baafff, #f993ff,
+#ff98ca, #ff9f8f), with a contrast of at least 3:1 to the road at every
+speed, also on the dark map background. On the light map background,
+where streets are white or pale, they are dark (#0d61ff, #792cff, #b100bd,
+#c20080, #cb0e00), at least 5.8:1 to white. Their colors and the legend
+follow the theme and the map background at once. Cars keep their lane. They change to the next lane
 when their lane does not allow their next turn, into smaller gaps closer
 to the end, to the left to pass slower cars, and back to the right when
 there is space, each only if no car is close behind there. With Pass on

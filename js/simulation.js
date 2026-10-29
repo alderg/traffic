@@ -149,8 +149,13 @@ window.TrafficSimulation = function(ui, listener)
 			'M -1.25 -0.85 L -1.25 0.85 L -1.8 0.92 L -1.8 -0.92 Z'}};
 
 	// Colors of the speed from standing to the fastest vehicles, from blue over
-	// violet and magenta to red, which stand out from the green of free lanes
-	var speedStops = ['#2d5ed4', '#7b46e9', '#bb2ad0', '#e71994', '#f62f53', '#f64734'];
+	// violet and magenta to red, which stand out from the green of free lanes.
+	// The road is the same mid-gray in both themes, so vehicles on it are light,
+	// at least 3:1 against it at every step, also on the dark map background.
+	// On the light map background, where streets are white or pale, they are
+	// dark, at least 5.8:1 against white.
+	var speedStops = ['#71bfff', '#baafff', '#f993ff', '#ff98ca', '#ff9f8f'];
+	var mapSpeedStops = ['#0d61ff', '#792cff', '#b100bd', '#c20080', '#cb0e00'];
 	var minVehiclePx = 9;
 	var maxWindowsScale = 1.5;
 	var vehicleStroke = 0.35;
@@ -158,7 +163,7 @@ window.TrafficSimulation = function(ui, listener)
 	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1, passEitherSide: false, vehicles: true};
+		trucks: 0.2, fast: 0.1, passEitherSide: false, vehicles: true, mapBackground: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -3715,31 +3720,43 @@ window.TrafficSimulation = function(ui, listener)
 	function getSpeedColors()
 	{
 		var top = config.vmax + ((config.fast > 0) ? 1 : 0);
+		var stops = getSpeedStops();
 
-		if (speedColors == null || speedColors.length != top + 1)
+		if (speedColors == null || speedColors.length != top + 1 || speedColors.stops != stops)
 		{
 			speedColors = [];
+			speedColors.stops = stops;
 
 			for (var i = 0; i <= top; i++)
 			{
-				speedColors.push(getScaleColor(i / top));
+				speedColors.push(getScaleColor(stops, i / top));
 			}
 		}
 
 		return speedColors;
 	};
 
+	/**
+	 * Returns the colors of the speeds for the background of the roads: dark
+	 * ones on the light map background, else light ones (see speedStops).
+	 */
+	function getSpeedStops()
+	{
+		return (config.mapBackground && !(typeof Editor !== 'undefined' && Editor.isDarkMode())) ?
+			mapSpeedStops : speedStops;
+	};
+
 	var speedColors = null;
 
 	/**
-	 * Returns the color at the given fraction of speedStops.
+	 * Returns the color at the given fraction of the given colors.
 	 */
-	function getScaleColor(f)
+	function getScaleColor(stops, f)
 	{
-		var x = Math.max(0, Math.min(1, f)) * (speedStops.length - 1);
-		var i = Math.min(speedStops.length - 2, Math.floor(x));
-		var a = parseInt(speedStops[i].substring(1), 16);
-		var b = parseInt(speedStops[i + 1].substring(1), 16);
+		var x = Math.max(0, Math.min(1, f)) * (stops.length - 1);
+		var i = Math.min(stops.length - 2, Math.floor(x));
+		var a = parseInt(stops[i].substring(1), 16);
+		var b = parseInt(stops[i + 1].substring(1), 16);
 		var t = x - i;
 		var rgb = [];
 
@@ -4924,8 +4941,10 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Sets the given option. Speed changes restart the steps and the
-	 * interpolation, Show density repaints the roads, and hiding the
-	 * vehicles stops painting them, also the selected one.
+	 * interpolation, Show density repaints the roads, hiding the vehicles
+	 * stops painting them, also the selected one, and mapBackground, which
+	 * the page sets while the map is behind the roads, changes the colors of
+	 * the vehicles.
 	 */
 	function setOption(key, value)
 	{
@@ -4947,6 +4966,10 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			labelsDirty = true;
 			clearLabels();
+			schedule();
+		}
+		else if (key == 'mapBackground')
+		{
 			schedule();
 		}
 		else if (key == 'vehicles' && overlay != null)
@@ -4974,6 +4997,12 @@ window.TrafficSimulation = function(ui, listener)
 
 	var tick = roads.guard(frame, 'simulation frame');
 	graph.model.addListener(mxEvent.CHANGE, roads.guard(invalidate, 'simulation model change'));
+
+	// Paints the vehicles in the colors of the theme, also when paused
+	ui.addListener('darkModeChanged', function()
+	{
+		schedule();
+	});
 
 	// Opening a file starts a new simulation
 	ui.editor.addListener('fileLoaded', roads.guard(function()
@@ -5602,6 +5631,6 @@ window.TrafficSimulation = function(ui, listener)
 	return {config: config, start: start, reset: reset, setRunning: setRunning,
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
-		vehicleShapes: vehicleShapes, speedStops: speedStops,
+		vehicleShapes: vehicleShapes, speedStops: speedStops, getSpeedStops: getSpeedStops,
 		selectVehicle: selectVehicle, setDebug: setDebug};
 };
