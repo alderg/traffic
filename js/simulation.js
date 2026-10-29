@@ -36,8 +36,12 @@
  * away and back out before their exit, and leave from the outer lane where
  * their next road starts. Free ends of roads join the junction they are on
  * or other free ends nearby, else they are dead ends. Cars drive from a
- * random junction to another, half of them from or to a junction with
- * gate=1 in its style if there are such entries and exits, on the fastest
+ * junction to another of the trip mode of the page (trips in the config,
+ * see pickTrip): random ones, half of them from or to a junction with
+ * gate=1 in its style if there are such entries and exits, commuters
+ * between homes and the centre with a gravity model, through traffic
+ * between gates, both mixed, or commuters between the homes and jobs of
+ * zones from OpenStreetMap with through traffic, on the fastest
  * route under the current speeds with the turns their lanes allow and look
  * for another route after waiting at a junction. maxSpeed=<km/h> in the
  * style of a road is its speed limit. Cars that do not arrive in their
@@ -101,6 +105,13 @@ window.TrafficSimulation = function(ui, listener)
 	var turnCells = 12;
 	var lifetimeFactor = 4;
 	var gateShare = 0.5;
+	// Trips other than random (see pickTrip): the share of local trips toward
+	// the centre or the jobs, the rest go back, the share of them that start
+	// or end at a gate, and the default share of through traffic
+	var tripModes = ['random', 'commuters', 'through', 'mixed', 'zones'];
+	var inboundShare = 0.65;
+	var gateCommuterShare = 0.12;
+	var defaultThroughShare = 0.25;
 	var tallySteps = 10;
 	var tallyBuckets = 6;
 	var maxLabels = 400;
@@ -195,7 +206,8 @@ window.TrafficSimulation = function(ui, listener)
 	var themeBarColors = ['light-dark(#d93025,#ff3b30)', 'light-dark(#f29900,#ffcc00)', 'light-dark(#188038,#34c759)'];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: false, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1, passEitherSide: false, passOncoming: true, roads: true, lights: false, vehicles: true,
-		mapBackground: false, center: false, adaptive: true, colors: 'blueRed'};
+		mapBackground: false, center: false, adaptive: true, colors: 'blueRed', trips: 'random',
+		through: defaultThroughShare, zones: false};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -1443,6 +1455,10 @@ window.TrafficSimulation = function(ui, listener)
 		this.signals = null;
 		this.since = (sim != null) ? sim.time : 0;
 		this.tally = null;
+		this.gate = false;
+		this.center = false;
+		this.homes = 0;
+		this.jobs = 0;
 	};
 
 	/**
@@ -2025,6 +2041,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.origin = route[0].from;
 		this.trail = [];
 		this.pass = null;
+		this.trip = null;
 		this.waited = 0;
 		this.reroutes = 0;
 		this.prevLink = null;
@@ -2389,7 +2406,7 @@ window.TrafficSimulation = function(ui, listener)
 		return {crossings: [], links: [], crossingMap: new Map(), linkMap: new Map(),
 			origins: [], dests: [], gateOrigins: [], gateDests: [], paired: [], passable: [],
 			passing: new Set(), cells: 0, lanes: 0, roundabouts: 0, lights: 0, ends: [], dist: null,
-			prev: null, stamps: null, search: 0, tooLarge: false};
+			prev: null, stamps: null, search: 0, tooLarge: false, trips: null, zones: false};
 	};
 
 	/**
@@ -2435,6 +2452,10 @@ window.TrafficSimulation = function(ui, listener)
 
 				junction.radius = Math.max(b.width, b.height) / 2;
 				junction.gate = mxUtils.getValue(state.style, 'gate', '0') == '1';
+				junction.center = mxUtils.getValue(state.style, 'center', '0') == '1';
+				junction.homes = Math.max(0, parseFloat(mxUtils.getValue(state.style, 'homes', '0')) || 0);
+				junction.jobs = Math.max(0, parseFloat(mxUtils.getValue(state.style, 'jobs', '0')) || 0);
+				result.zones = result.zones || junction.homes > 0 || junction.jobs > 0;
 				addJunction(junction);
 			}
 
@@ -2769,27 +2790,389 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Keeps the number of cars by adding cars with random routes (the random
-	 * mode of the Java version, which also read plans from files).
+	 * Keeps the number of cars by adding cars with routes between origins and
+	 * destinations of the trip model in the config (trips): random ones as in
+	 * the Java version, which also read plans from files, or those of
+	 * pickTrip.
 	 */
 	function addCars()
 	{
 		// At most one new car per origin and a few routes per step
 		var missing = Math.min(config.cars - sim.active.size - sim.queued,
 			net.origins.length, maxNewCarsPerStep);
+		var random = config.trips == 'random';
 
 		for (var i = 0; i < missing && net.origins.length > 0; i++)
 		{
-			var start = getRandomJunction(net.origins, net.gateOrigins);
-			var end = getRandomJunction(net.dests, net.gateDests);
+			var trip = (random) ? null : pickTrip();
+			var start = (random) ? getRandomJunction(net.origins, net.gateOrigins) : trip.start;
+			var end = (random) ? getRandomJunction(net.dests, net.gateDests) : trip.end;
 			var route = (start != end) ? getRoute(start, end) : null;
 
 			if (route != null)
 			{
-				route[0].queue.push(new Vehicle(sim.created++, route, sim.time, getRandomType()));
+				var v = new Vehicle(sim.created++, route, sim.time, getRandomType());
+				v.trip = (random) ? {kind: 'random', from: (start.gate) ? 'gate' : 'junction',
+					to: (end.gate) ? 'gate' : 'junction'} : trip.info;
+				route[0].queue.push(v);
 				sim.queued++;
 			}
 		}
+	};
+
+	/**
+	 * Returns the trip model of the current network for the modes other than
+	 * random, made once per network (see buildTrips).
+	 */
+	function getTrips()
+	{
+		if (net.trips == null)
+		{
+			net.trips = buildTrips(net);
+		}
+
+		return net.trips;
+	};
+
+	/**
+	 * Returns the cumulative sums of the given weights.
+	 */
+	function getCumulative(weights)
+	{
+		var cum = new Float64Array(weights.length);
+		var sum = 0;
+
+		for (var i = 0; i < weights.length; i++)
+		{
+			sum += Math.max(0, weights[i]);
+			cum[i] = sum;
+		}
+
+		return cum;
+	};
+
+	/**
+	 * Returns a random index of the given cumulative weights, in proportion
+	 * to the weights, or -1 if they are all 0.
+	 */
+	function pickIndex(cum)
+	{
+		var total = (cum.length > 0) ? cum[cum.length - 1] : 0;
+
+		if (total <= 0)
+		{
+			return -1;
+		}
+
+		var x = Math.random() * total;
+		var lo = 0;
+		var hi = cum.length - 1;
+
+		while (lo < hi)
+		{
+			var mid = (lo + hi) >> 1;
+
+			if (cum[mid] > x)
+			{
+				hi = mid;
+			}
+			else
+			{
+				lo = mid + 1;
+			}
+		}
+
+		return lo;
+	};
+
+	/**
+	 * Returns the weight of the given gate for through traffic and commuters
+	 * from outside: its lanes, more for faster roads, so that main roads
+	 * carry more of them.
+	 */
+	function getGateWeight(gate)
+	{
+		var links = gate.fanOut.concat(gate.fanIn);
+		var w = 0;
+
+		for (var i = 0; i < links.length; i++)
+		{
+			var kmh = 3.6 * cellLength * ((links[i].limit > 0) ? links[i].limit : config.vmax);
+			w = Math.max(w, links[i].cells.length * Math.pow(kmh / 50, 1.5));
+		}
+
+		return Math.max(0.05, w);
+	};
+
+	/**
+	 * Returns the trip model of the given network. Its center are the
+	 * junctions with center=1 in their style, else the mean of the junctions
+	 * weighted by the square of their roads, so the most connected, and its
+	 * radius the distance of three quarters of the junctions from there. The
+	 * structure of any network gives homes, more toward the outskirts, and
+	 * the centre, which attracts trips the more the closer a junction is to
+	 * the center and the more roads it has. Zones have the homes and jobs of
+	 * the junctions from OpenStreetMap (homes and jobs in their style, see
+	 * js/osm.js). Gates are the junctions with gate=1, else dead ends in the
+	 * outer part of the network, else its outermost junctions, with pairs
+	 * weighted by their roads (getGateWeight) and more on opposite sides.
+	 */
+	function buildTrips(network)
+	{
+		var js = network.crossings;
+		var marked = js.filter(function(j)
+		{
+			return j.center;
+		});
+		var cx = 0;
+		var cy = 0;
+		var sw = 0;
+		var list = (marked.length > 0) ? marked : js;
+
+		for (var i = 0; i < list.length; i++)
+		{
+			var n = getRoadCount(list[i]);
+			var w = (marked.length > 0) ? 1 : n * n * ((list[i].phases != null || list[i].rings != null) ? 2 : 1);
+			cx += list[i].x * w;
+			cy += list[i].y * w;
+			sw += w;
+		}
+
+		cx = (sw > 0) ? cx / sw : 0;
+		cy = (sw > 0) ? cy / sw : 0;
+
+		var dist = js.map(function(j)
+		{
+			return Math.sqrt((j.x - cx) * (j.x - cx) + (j.y - cy) * (j.y - cy));
+		});
+		var sorted = dist.slice().sort(function(a, b)
+		{
+			return a - b;
+		});
+		var radius = Math.max(50, sorted[Math.floor(0.75 * (sorted.length - 1))] || 0);
+		var far = sorted[sorted.length - 1] || 0;
+
+		// Gates: marked, else dead ends outside, else the outermost junctions
+		var gates = js.filter(function(j)
+		{
+			return j.gate;
+		});
+
+		if (gates.length < 2)
+		{
+			gates = js.filter(function(j, i)
+			{
+				return getRoadCount(j) == 1 && dist[i] >= 0.6 * far;
+			});
+		}
+
+		if (gates.length < 2)
+		{
+			var outer = sorted[Math.floor(0.9 * (sorted.length - 1))] || 0;
+
+			gates = js.filter(function(j, i)
+			{
+				return dist[i] >= outer && dist[i] > 0;
+			});
+		}
+
+		var isGate = new Set(gates);
+		var trips = {cx: cx, cy: cy, radius: radius, gates: gates, isGate: isGate, zones: false,
+			origins: [], dests: [], gateOrigins: [], gateDests: [], pairs: [], pairCum: null};
+
+		for (var i = 0; i < js.length; i++)
+		{
+			var j = js[i];
+			var r = dist[i] / radius;
+			var n = getRoadCount(j);
+			trips.zones = trips.zones || j.homes > 0 || j.jobs > 0;
+
+			if (!isGate.has(j))
+			{
+				var node = {junction: j, home: n * (0.2 + Math.min(1.2, r)),
+					centre: n * (Math.exp(-(r / 0.45) * (r / 0.45)) + 0.05) + ((j.center) ? 4 * n : 0),
+					homes: j.homes, jobs: j.jobs};
+
+				if (j.fanOut.length > 0)
+				{
+					trips.origins.push(node);
+				}
+
+				if (j.fanIn.length > 0)
+				{
+					trips.dests.push(node);
+				}
+			}
+		}
+
+		// Weights of gates and of pairs of gates for through traffic
+		var gw = gates.map(getGateWeight);
+		var pw = [];
+
+		for (var i = 0; i < gates.length; i++)
+		{
+			if (gates[i].fanOut.length > 0)
+			{
+				trips.gateOrigins.push({junction: gates[i], weight: gw[i]});
+			}
+
+			if (gates[i].fanIn.length > 0)
+			{
+				trips.gateDests.push({junction: gates[i], weight: gw[i]});
+			}
+
+			for (var k = 0; k < gates.length && gates[i].fanOut.length > 0; k++)
+			{
+				if (k != i && gates[k].fanIn.length > 0)
+				{
+					var ax = gates[i].x - cx;
+					var ay = gates[i].y - cy;
+					var bx = gates[k].x - cx;
+					var by = gates[k].y - cy;
+					var len = Math.sqrt((ax * ax + ay * ay) * (bx * bx + by * by));
+					var cos = (len > 0) ? (ax * bx + ay * by) / len : 0;
+					var apart = (1 - cos) / 2;
+					trips.pairs.push([gates[i], gates[k]]);
+					pw.push(gw[i] * gw[k] * (0.05 + apart * apart));
+				}
+			}
+		}
+
+		trips.pairCum = getCumulative(pw);
+		trips.gateOriginCum = getCumulative(trips.gateOrigins.map(function(g)
+		{
+			return g.weight;
+		}));
+		trips.gateDestCum = getCumulative(trips.gateDests.map(function(g)
+		{
+			return g.weight;
+		}));
+
+		// Cumulative weights of the origins and destinations for both models
+		['home', 'centre', 'homes', 'jobs'].forEach(function(key)
+		{
+			function get(node)
+			{
+				return node[key];
+			};
+
+			trips['origin_' + key] = getCumulative(trips.origins.map(get));
+			trips['dest_' + key] = getCumulative(trips.dests.map(get));
+		});
+
+		return trips;
+	};
+
+	/**
+	 * Returns the factor of the gravity model for a trip of the given length
+	 * in a network of the given radius: few very short trips, and fewer the
+	 * longer they are.
+	 */
+	function getDeterrence(d, radius)
+	{
+		var short = d / (0.2 * radius);
+
+		return (1 - Math.exp(-short * short)) * Math.exp(-d / (1.2 * radius));
+	};
+
+	/**
+	 * Returns a destination of the given list for a trip from the given
+	 * junction with the given cumulative weights, in proportion to the weight
+	 * and the gravity model (getDeterrence), by rejection.
+	 */
+	function pickDestination(list, cum, from, radius)
+	{
+		var best = -1;
+
+		for (var tries = 0; tries < 40; tries++)
+		{
+			var i = pickIndex(cum);
+
+			if (i < 0)
+			{
+				return null;
+			}
+
+			var j = list[i].junction;
+			var d = Math.sqrt((j.x - from.x) * (j.x - from.x) + (j.y - from.y) * (j.y - from.y));
+			best = i;
+
+			if (j != from && Math.random() < getDeterrence(d, radius))
+			{
+				break;
+			}
+		}
+
+		return list[best].junction;
+	};
+
+	/**
+	 * Returns the start and end of a new trip in the mode of the config and
+	 * what kind of trip it is: through traffic between gates with the share
+	 * of through traffic of the mode (none for commuters, all for through
+	 * traffic), else a local trip of the gravity model, toward the centre or
+	 * the jobs for inboundShare of them, from homes and from gates for
+	 * gateCommuterShare, and back from there for the others.
+	 */
+	function pickTrip()
+	{
+		var t = getTrips();
+		var mode = config.trips;
+		var zones = mode == 'zones' && t.zones;
+		var share = (mode == 'through') ? 1 : ((mode == 'mixed' || mode == 'zones') ? config.through : 0);
+		var home = (zones) ? 'homes' : 'home';
+		var attract = (zones) ? 'jobs' : 'centre';
+		var name = (zones) ? 'work' : 'centre';
+
+		if (t.pairs.length > 0 && Math.random() < share)
+		{
+			var pair = t.pairs[pickIndex(t.pairCum)];
+
+			return {start: pair[0], end: pair[1], info: {kind: 'through', from: 'gate', to: 'gate'}};
+		}
+
+		var inbound = Math.random() < inboundShare;
+		var gate = t.gateOrigins.length > 0 && t.gateDests.length > 0 && Math.random() < gateCommuterShare;
+		var start = null;
+		var end = null;
+		var from = (inbound) ? 'home' : name;
+		var to = (inbound) ? name : 'home';
+		var i = -1;
+
+		if (inbound && gate)
+		{
+			start = t.gateOrigins[pickIndex(t.gateOriginCum)].junction;
+			from = 'gate';
+		}
+		else
+		{
+			i = pickIndex(t['origin_' + ((inbound) ? home : attract)]);
+			start = (i >= 0) ? t.origins[i].junction : null;
+		}
+
+		if (start == null)
+		{
+			start = net.origins[Math.floor(Math.random() * net.origins.length)];
+			from = 'junction';
+		}
+
+		if (!inbound && gate)
+		{
+			end = t.gateDests[pickIndex(t.gateDestCum)].junction;
+			to = 'gate';
+		}
+		else
+		{
+			end = pickDestination(t.dests, t['dest_' + ((inbound) ? attract : home)], start, t.radius);
+		}
+
+		if (end == null)
+		{
+			end = net.dests[Math.floor(Math.random() * net.dests.length)];
+			to = 'junction';
+		}
+
+		return {start: start, end: end, info: {kind: 'local', from: from, to: to}};
 	};
 
 	function addActive(v)
@@ -3245,6 +3628,7 @@ window.TrafficSimulation = function(ui, listener)
 		var old = net;
 		dirty = false;
 		net = createNetwork();
+		readTrips();
 		record('network', null, {junctions: net.crossings.length, links: net.links.length,
 			lanes: net.lanes, cells: net.cells});
 
@@ -3286,9 +3670,9 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		var root = createNode('g', null, {});
 		root.style.pointerEvents = 'none';
-		// Layers from the bottom up: density, route, stop bars, which belong to
-		// the roads, heads of the traffic lights, cars
-		overlay = {root: root, scale: graph.view.scale, roads: createNode('g', root, {}),
+		// Layers from the bottom up: zones, density, route, stop bars, which
+		// belong to the roads, heads of the traffic lights, cars
+		overlay = {root: root, scale: graph.view.scale, zones: createNode('g', root, {}), roads: createNode('g', root, {}),
 			route: createNode('g', root, {}), bars: createNode('g', root, {}), heads: createNode('g', root, {}),
 			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
 			labels: createNode('g', root, {}), focus: createNode('g', root, {})};
@@ -3409,10 +3793,77 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
+	 * Paints the origins and destinations of the trip mode with Show zones
+	 * (zones in the config): homes in blue and the centre or the jobs in
+	 * orange, as circles with an area in proportion to their weight, the
+	 * gates as rings and the center of the network as a cross.
+	 */
+	function paintZones()
+	{
+		clearChildren(overlay.zones);
+
+		if (!config.zones || net == null || net.crossings.length == 0)
+		{
+			return;
+		}
+
+		var t = getTrips();
+		var mode = config.trips;
+		var zones = mode == 'zones' && t.zones;
+		var keys = (mode == 'random') ? [] : ((zones) ? ['homes', 'jobs'] : ['home', 'centre']);
+		var colors = ['rgba(26,115,232,0.3)', 'rgba(232,113,10,0.35)'];
+		var maxR = 0.06 * t.radius;
+
+		for (var k = 0; k < keys.length; k++)
+		{
+			var nodes = (k == 0) ? t.origins : t.dests;
+			var max = 0;
+
+			for (var i = 0; i < nodes.length; i++)
+			{
+				max = Math.max(max, nodes[i][keys[k]]);
+			}
+
+			var g = createNode('g', overlay.zones, {fill: colors[k]});
+
+			for (var i = 0; i < nodes.length && max > 0; i++)
+			{
+				var f = nodes[i][keys[k]] / max;
+
+				if (f > 0.02)
+				{
+					createNode('circle', g, {cx: nodes[i].junction.x, cy: nodes[i].junction.y,
+						r: Math.round(maxR * Math.sqrt(f) * 10) / 10});
+				}
+			}
+		}
+
+		var rings = createNode('g', overlay.zones, {fill: 'none', 'stroke-width': Math.max(2, maxR / 8)});
+		rings.style.stroke = 'light-dark(#3c4043,#e8eaed)';
+		var gates = (mode == 'random') ? net.crossings.filter(function(j)
+		{
+			return j.gate;
+		}) : t.gates;
+
+		for (var i = 0; i < gates.length; i++)
+		{
+			createNode('circle', rings, {cx: gates[i].x, cy: gates[i].y, r: maxR / 2});
+		}
+
+		if (mode != 'random' && !zones)
+		{
+			var c = maxR / 2;
+			createNode('path', rings, {d: 'M ' + (t.cx - c) + ' ' + t.cy + ' L ' + (t.cx + c) + ' ' + t.cy +
+				' M ' + t.cx + ' ' + (t.cy - c) + ' L ' + t.cx + ' ' + (t.cy + c)});
+		}
+	};
+
+	/**
 	 * Paints the density of the lanes and the traffic lights.
 	 */
 	function paintNetwork()
 	{
+		paintZones();
 		clearChildren(overlay.roads);
 		clearChildren(overlay.bars);
 		clearChildren(overlay.heads);
@@ -5068,6 +5519,11 @@ window.TrafficSimulation = function(ui, listener)
 		else if (key == 'vmax' && net != null)
 		{
 			net.passable = getPassable(net);
+			net.trips = null;
+		}
+		else if (key == 'zones' && overlay != null)
+		{
+			paintZones();
 		}
 		else if (key == 'density' && overlay != null)
 		{
@@ -5184,6 +5640,70 @@ window.TrafficSimulation = function(ui, listener)
 		}
 	};
 
+	/**
+	 * Reads the trip mode and the share of through traffic of the current
+	 * page into the config from the attributes trips and throughShare of the
+	 * root of the page, where Edit Data on the background shows them too.
+	 * Without a mode, or zones in a network without zones, it is zones for
+	 * towns with zones and else random.
+	 */
+	function readTrips()
+	{
+		var root = graph.model.getRoot();
+		var value = (root != null) ? root.value : null;
+		var data = value != null && typeof value == 'object' && value.getAttribute != null;
+		var mode = (data) ? value.getAttribute('trips') : null;
+		var share = (data && value.getAttribute('throughShare') != null) ?
+			parseFloat(value.getAttribute('throughShare')) : NaN;
+		var zones = net != null && net.zones;
+
+		if (tripModes.indexOf(mode) < 0 || (mode == 'zones' && !zones))
+		{
+			mode = (zones) ? 'zones' : 'random';
+		}
+
+		config.trips = mode;
+		config.through = (share >= 0 && share <= 1) ? share : defaultThroughShare;
+	};
+
+	/**
+	 * Sets the trip mode and the share of through traffic of the current page
+	 * for new cars, in the root of the page, so that the diagram keeps them
+	 * and they can be undone.
+	 */
+	function setTrips(mode, share)
+	{
+		var model = graph.model;
+		var root = model.getRoot();
+		var value = root.value;
+		var obj = (value != null && typeof value == 'object' && value.cloneNode != null) ? value.cloneNode(true) :
+			mxUtils.createXmlDocument().createElement('object');
+
+		if (typeof value == 'string' && value.length > 0)
+		{
+			obj.setAttribute('label', value);
+		}
+
+		obj.setAttribute('trips', mode);
+		obj.setAttribute('throughShare', String(Math.round(Math.max(0, Math.min(1, share)) * 100) / 100));
+		model.setValue(root, obj);
+	};
+
+	/**
+	 * Returns the trip modes with their labels and whether the current
+	 * network offers them, and the mode and share of through traffic.
+	 */
+	function getTripModes()
+	{
+		var labels = {random: 'Random', commuters: 'Commuters to the centre', through: 'Through traffic',
+			mixed: 'Commuters and through traffic', zones: 'Zones (OpenStreetMap)'};
+
+		return {mode: config.trips, through: config.through, modes: tripModes.map(function(mode)
+		{
+			return {value: mode, label: labels[mode], available: mode != 'zones' || (net != null && net.zones)};
+		})};
+	};
+
 	function invalidate()
 	{
 		if (overlay != null)
@@ -5194,7 +5714,30 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	var tick = roads.guard(frame, 'simulation frame');
-	graph.model.addListener(mxEvent.CHANGE, roads.guard(invalidate, 'simulation model change'));
+	// Changes of the trips of the page only change the trips of new cars
+	graph.model.addListener(mxEvent.CHANGE, roads.guard(function(sender, evt)
+	{
+		var edit = evt.getProperty('edit');
+		var root = graph.model.getRoot();
+
+		if (edit != null && edit.changes.length > 0 && edit.changes.every(function(change)
+		{
+			return change instanceof mxValueChange && change.cell == root;
+		}))
+		{
+			readTrips();
+
+			if (overlay != null)
+			{
+				paintZones();
+				schedule();
+			}
+		}
+		else
+		{
+			invalidate();
+		}
+	}, 'simulation model change'));
 
 	// Hidden roads and junctions cannot be selected, also not by a rectangle
 	var isCellSelectable = graph.isCellSelectable;
@@ -5718,6 +6261,25 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
+	 * Returns the kind of the given trip with the types of its origin and
+	 * destination for the panel.
+	 */
+	function getTripText(trip)
+	{
+		var names = {home: 'home', centre: 'centre', work: 'work or shops', gate: 'gate', junction: 'junction'};
+
+		if (trip == null)
+		{
+			return 'Random';
+		}
+
+		var kind = (trip.kind == 'through') ? 'Through traffic' : ((trip.kind == 'random') ? 'Random' :
+			((trip.from == 'gate') ? 'Commuter from outside' : ((trip.to == 'gate') ? 'Local, leaving town' : 'Local')));
+
+		return kind + ', ' + names[trip.from] + ' \u2192 ' + names[trip.to];
+	};
+
+	/**
 	 * Returns the name of the type of the given car.
 	 */
 	function getTypeName(v)
@@ -5767,6 +6329,7 @@ window.TrafficSimulation = function(ui, listener)
 				((v.link != null) ? v.link.getTopSpeed(v) : getTopSpeed(v))) + ' km/h']);
 		}
 
+		rows.push(['Trip', getTripText(v.trip)]);
 		rows.push(['Start', 'A, ' + getJunctionName(v.origin) + ' at ' + formatTime(v.start)]);
 		rows.push(['Destination', 'B, ' + getJunctionName(focus.dest)]);
 		rows.push(['Travel time', formatTime(time - v.start)]);
@@ -6029,5 +6592,6 @@ window.TrafficSimulation = function(ui, listener)
 		isRunning: function() { return running; }, setOption: setOption,
 		importFile: importFile, getLight: getLight, getStats: getStats, getVehicle: getVehicle,
 		vehicleShapes: vehicleShapes, colorSets: colorSets, getSpeedStops: getSpeedStops,
-		selectVehicle: selectVehicle, isCenterPaused: isCenterPaused, setDebug: setDebug};
+		selectVehicle: selectVehicle, isCenterPaused: isCenterPaused, setDebug: setDebug,
+		getTripModes: getTripModes, setTrips: setTrips};
 };

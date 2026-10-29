@@ -34,6 +34,18 @@
  * junction, with the old ends of the roads as waypoints. The carriageways
  * of dual roads stay one-way roads, so that cars drive on them on the map.
  * Small parts that are not connected to the rest are dropped.
+ *
+ * Zones for the trips of the simulation come with the roads in the same
+ * query (getZoneQuery), as light as possible: only the ids and bounding
+ * boxes of land use areas (residential, commercial and retail, industrial)
+ * and the ids and positions of shops, offices and amenities where people
+ * work, learn, shop or go out, each kind after a marker element. build
+ * gives the junctions in the town that are not gates homes and jobs in
+ * their style: residential areas homes and the others and the places jobs,
+ * in proportion to their area or number, shared by the junctions in the
+ * bounding box of an area or else the nearest junction within
+ * zoneDistance. Towns that were cached before zones get them with one
+ * query of their own.
  */
 var TrafficOsm = (function()
 {
@@ -77,6 +89,15 @@ var TrafficOsm = (function()
 	var maxClusterSize = 40;
 	var simplifyTolerance = 4;
 	var lightGreen = 10;
+	// Zones: weights per hectare of land use and per place, the share of the
+	// bounding box that an area fills and the distance of the nearest
+	// junction that gets the weight of an area or place without a junction
+	var zoneWeights = {homes: 40, commercial: 60, industrial: 25, places: 8};
+	var zoneFill = 0.6;
+	var zoneDistance = 300;
+	var zoneAmenities = '^(school|college|university|kindergarten|hospital|clinic|doctors|dentist|' +
+		'restaurant|cafe|fast_food|bar|pub|cinema|theatre|townhall|marketplace|bank|pharmacy|' +
+		'post_office|library|community_centre|police|fire_station)$';
 	// Lanes as wide as on the streets of the map
 	var laneWidth = 3.5;
 	var crossingSize = 16;
@@ -488,7 +509,21 @@ var TrafficOsm = (function()
 
 		return '[out:json][timeout:180][bbox:' + getBboxText(bounds) + '];' +
 			'way[highway~"' + pattern + '"]->.w;.w out body qt;node(w.w)->.n;.n out skel qt;' +
-			'node.n[highway=traffic_signals];out tags qt;';
+			'node.n[highway=traffic_signals];out tags qt;' + getZoneQuery();
+	};
+
+	/**
+	 * Returns the statements of the query for the zones: a marker of each
+	 * kind followed by the ids and bounding boxes of its land use areas, or
+	 * the positions of its places.
+	 */
+	function getZoneQuery()
+	{
+		return 'make zone kind="homes";out;wr[landuse=residential];out ids bb qt;' +
+			'make zone kind="commercial";out;wr[landuse~"^(commercial|retail)$"];out ids bb qt;' +
+			'make zone kind="industrial";out;wr[landuse=industrial];out ids bb qt;' +
+			'make zone kind="places";out;nwr[shop];out ids center qt;nwr[office];out ids center qt;' +
+			'nwr[amenity~"' + zoneAmenities + '"];out ids center qt;';
 	};
 
 	/**
@@ -605,12 +640,24 @@ var TrafficOsm = (function()
 		var lat = [];
 		var lon = [];
 		var signals = [];
+		var zones = null;
+		var kind = null;
 
 		for (var i = 0; i < json.elements.length; i++)
 		{
 			var e = json.elements[i];
 
-			if (e.type == 'way' && e.tags != null && e.nodes != null)
+			// The zones come after their markers
+			if (e.type == 'zone')
+			{
+				kind = (e.tags != null) ? e.tags.kind : null;
+				zones = zones || createZones();
+			}
+			else if (kind != null)
+			{
+				addZone(zones, kind, e);
+			}
+			else if (e.type == 'way' && e.tags != null && e.nodes != null)
 			{
 				var tags = {};
 
@@ -636,7 +683,86 @@ var TrafficOsm = (function()
 			}
 		}
 
-		return {ways: ways, nodes: {ids: ids, lat: lat, lon: lon}, signals: signals};
+		var result = {ways: ways, nodes: {ids: ids, lat: lat, lon: lon}, signals: signals};
+
+		if (zones != null)
+		{
+			result.zones = zones;
+		}
+
+		return result;
+	};
+
+	function createZones()
+	{
+		return {areas: {kind: [], south: [], west: [], north: [], east: []}, places: {lat: [], lon: []}};
+	};
+
+	/**
+	 * Adds the given element of the answer of Overpass to the given zones as
+	 * an area of the given kind with its bounding box or a place.
+	 */
+	function addZone(zones, kind, e)
+	{
+		function round(v)
+		{
+			return Math.round(v * 1e5) / 1e5;
+		};
+
+		if (kind == 'places')
+		{
+			var c = (e.lat != null) ? e : e.center;
+
+			if (c != null)
+			{
+				zones.places.lat.push(round(c.lat));
+				zones.places.lon.push(round(c.lon));
+			}
+		}
+		else if (e.bounds != null)
+		{
+			var a = zones.areas;
+			a.kind.push(kind);
+			a.south.push(round(e.bounds.minlat));
+			a.west.push(round(e.bounds.minlon));
+			a.north.push(round(e.bounds.maxlat));
+			a.east.push(round(e.bounds.maxlon));
+		}
+	};
+
+	/**
+	 * Loads the zones of the given cached entry of a town that was loaded
+	 * before zones, with one query for its bounds, and keeps them with it.
+	 * Resolves to the entry, without zones if no server answers.
+	 */
+	function loadZones(entry, signal, onStatus)
+	{
+		var m = /\[bbox:([^\]]+)\]/.exec(entry.query || '');
+
+		if (m == null)
+		{
+			return Promise.resolve(entry);
+		}
+
+		var query = '[out:json][timeout:120][bbox:' + m[1] + '];' + getZoneQuery();
+
+		return overpass(query, signal, 60000, onStatus).then(function(json)
+		{
+			entry.data.zones = compact(json).zones || createZones();
+
+			return (entry.key != null) ? cachePut('towns', entry.key, entry) : null;
+		}).then(function()
+		{
+			return entry;
+		}, function(e)
+		{
+			if (isAbort(e, signal))
+			{
+				throw e;
+			}
+
+			return entry;
+		});
 	};
 
 	/**
@@ -659,7 +785,7 @@ var TrafficOsm = (function()
 			{
 				entry.cached = true;
 
-				return entry;
+				return (entry.data.zones == null) ? loadZones(entry, signal, onStatus) : entry;
 			}
 
 			var query = getQuery(bounds, level);
@@ -669,7 +795,8 @@ var TrafficOsm = (function()
 				var result = {data: compact(json), date: new Date().toISOString(), query: query,
 					server: json.server, level: level, dataDate: (json.osm3s != null) ?
 					json.osm3s.timestamp_osm_base : null};
-				memory = {key: getCacheKey(place, level, section), entry: result};
+				result.key = getCacheKey(place, level, section);
+				memory = {key: result.key, entry: result};
 
 				return cachePut('towns', memory.key, result).then(function()
 				{
@@ -708,6 +835,11 @@ var TrafficOsm = (function()
 			return (i >= cacheKeys.length) ? Promise.resolve(null) : ((memory != null && memory.key == cacheKeys[i]) ?
 				Promise.resolve(memory.entry) : cacheGet('towns', cacheKeys[i])).then(function(entry)
 			{
+				if (entry != null)
+				{
+					entry.key = cacheKeys[i];
+				}
+
 				return entry || find(i + 1);
 			});
 		};
@@ -2040,6 +2172,134 @@ var TrafficOsm = (function()
 	};
 
 	/**
+	 * Gives the given junctions inside the given region, other than gates,
+	 * the homes and jobs of the given zones (see getZoneQuery): each area its
+	 * weight per hectare of the bounding box that it fills, shared by the
+	 * junctions in the box, else given to the nearest junction within
+	 * zoneDistance, like each place. Returns the number of areas and places
+	 * that were used and the sums of homes and jobs.
+	 */
+	function addZones(vertices, zones, proj, region)
+	{
+		var size = 250;
+		var grid = new Map();
+		var result = {areas: 0, places: 0, homes: 0, jobs: 0};
+
+		vertices.forEach(function(v)
+		{
+			v.homes = 0;
+			v.jobs = 0;
+
+			if (v.kind != 'gate')
+			{
+				var key = Math.floor(v.x / size) + ',' + Math.floor(v.y / size);
+				var list = grid.get(key);
+
+				if (list == null)
+				{
+					list = [];
+					grid.set(key, list);
+				}
+
+				list.push(v);
+			}
+		});
+
+		function inBox(x0, y0, x1, y1)
+		{
+			var found = [];
+
+			for (var gx = Math.floor(x0 / size); gx <= Math.floor(x1 / size); gx++)
+			{
+				for (var gy = Math.floor(y0 / size); gy <= Math.floor(y1 / size); gy++)
+				{
+					var list = grid.get(gx + ',' + gy) || [];
+
+					for (var i = 0; i < list.length; i++)
+					{
+						var v = list[i];
+
+						if (v.x >= x0 && v.x <= x1 && v.y >= y0 && v.y <= y1)
+						{
+							found.push(v);
+						}
+					}
+				}
+			}
+
+			return found;
+		};
+
+		function nearest(x, y)
+		{
+			var best = null;
+			var dist = zoneDistance;
+
+			inBox(x - zoneDistance, y - zoneDistance, x + zoneDistance, y + zoneDistance).forEach(function(v)
+			{
+				var d = Math.sqrt((v.x - x) * (v.x - x) + (v.y - y) * (v.y - y));
+
+				if (d < dist)
+				{
+					dist = d;
+					best = v;
+				}
+			});
+
+			return best;
+		};
+
+		function add(list, key, weight)
+		{
+			for (var i = 0; i < list.length; i++)
+			{
+				list[i][key] += weight / list.length;
+			}
+
+			result[key] += (list.length > 0) ? weight : 0;
+		};
+
+		var a = zones.areas;
+
+		for (var i = 0; i < a.kind.length; i++)
+		{
+			var x0 = proj.x(a.west[i]);
+			var x1 = proj.x(a.east[i]);
+			var y0 = proj.y(a.north[i]);
+			var y1 = proj.y(a.south[i]);
+			var cx = (x0 + x1) / 2;
+			var cy = (y0 + y1) / 2;
+			var weight = zoneWeights[a.kind[i]];
+
+			if (weight != null && region.inside(cx, cy))
+			{
+				var list = inBox(x0 - 30, y0 - 30, x1 + 30, y1 + 30);
+				var v = (list.length == 0) ? nearest(cx, cy) : null;
+				add((v != null) ? [v] : list, (a.kind[i] == 'homes') ? 'homes' : 'jobs',
+					weight * (x1 - x0) * (y1 - y0) * zoneFill / 1e4);
+				result.areas++;
+			}
+		}
+
+		var p = zones.places;
+
+		for (var i = 0; i < p.lat.length; i++)
+		{
+			var x = proj.x(p.lon[i]);
+			var y = proj.y(p.lat[i]);
+			var v = (region.inside(x, y)) ? nearest(x, y) : null;
+
+			if (v != null)
+			{
+				add([v], 'jobs', zoneWeights.places);
+				result.places++;
+			}
+		}
+
+		return result;
+	};
+
+	/**
 	 * Returns the style of the given road: lanes per direction, laneSpec
 	 * for different lanes per direction, an arrow for one-way roads and
 	 * maxSpeed in km/h.
@@ -2100,7 +2360,12 @@ var TrafficOsm = (function()
 			return !v.removed && v.edges.length > 0;
 		});
 		var stats = {junctions: vertices.length, roads: edges.length, lights: 0, roundabouts: 0, gates: 0,
-			km: 0, laneKm: 0, points: 0, dropped: dropped};
+			km: 0, laneKm: 0, points: 0, dropped: dropped, zones: null};
+
+		if (data.zones != null)
+		{
+			stats.zones = addZones(vertices, data.zones, proj, region);
+		}
 
 		vertices.forEach(function(v)
 		{
@@ -2165,9 +2430,10 @@ var TrafficOsm = (function()
 		vertices.forEach(function(v)
 		{
 			var size = (v.kind == 'roundabout') ? 2 * v.radius : crossingSize;
-			var style = (v.kind == 'roundabout') ? roundaboutStyle + 'lanes=' + v.lanes + ';laneWidth=' + laneWidth + ';' :
+			var style = ((v.kind == 'roundabout') ? roundaboutStyle + 'lanes=' + v.lanes + ';laneWidth=' + laneWidth + ';' :
 				crossingStyle + ((v.light) ? 'trafficLight=' + lightGreen + ';' : '') +
-				((v.kind == 'gate') ? 'gate=1;' : '');
+				((v.kind == 'gate') ? 'gate=1;' : '')) + ((v.homes >= 1) ? 'homes=' + Math.round(v.homes) + ';' : '') +
+				((v.jobs >= 1) ? 'jobs=' + Math.round(v.jobs) + ';' : '');
 
 			while (ids.has(v.id))
 			{
@@ -2215,8 +2481,8 @@ var TrafficOsm = (function()
 		var font = Math.max(12, Math.round((x1 - x0) / 60));
 		var date = options.date || new Date().toISOString();
 		var mercator = [(proj.x0 - dx / proj.k).toFixed(3), (proj.y0 + dy / proj.k).toFixed(3), proj.k.toFixed(12)];
-		out.push('<UserObject label="' + escape(name + ': roads ' + attribution + ' (ODbL), ' +
-			date.substring(0, 10)) + '" link="' + copyrightUrl + '" mercator="' + mercator.join(',') +
+		out.push('<UserObject label="' + escape(name + ': roads' + ((stats.zones != null) ? ' and zones ' : ' ') +
+			attribution + ' (ODbL), ' + date.substring(0, 10)) + '" link="' + copyrightUrl + '" mercator="' + mercator.join(',') +
 			'" id="osm-attribution">' +
 			'<mxCell style="text;html=1;align=left;verticalAlign=top;whiteSpace=nowrap;fontSize=' + font +
 			';fontColor=light-dark(#59636e,#9aa0a6);" vertex="1" parent="1"><mxGeometry x="40" y="' +

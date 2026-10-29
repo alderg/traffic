@@ -113,9 +113,14 @@ see [Loading Your Town](#loading-your-town).
   per step (rounded, at least 27 km/h). Without it, vehicles drive up to
   Max. speed.
 - `gate=1` in the style of a junction makes it an entry and exit of the
-  network: half of the cars start at a gate and half end at one, so that
-  traffic flows in and out there. Loaded towns have gates where their roads
-  leave the town.
+  network: with Random trips, half of the cars start at a gate and half end
+  at one, so that traffic flows in and out there, and the other trips use
+  gates for through traffic and commuters from outside (see
+  [Trips](#trips)). Loaded towns have gates where their roads leave the
+  town.
+- `center=1` in the style of a junction marks the centre of the network for
+  the commuters of [Trips](#trips), and `homes=120` and `jobs=80` give it
+  homes and jobs, as loaded towns have them, which offers the Zones trips.
 - 1 unit is 1 meter and 1 step is 1 second.
 
 Changes to the diagram take effect while the simulation is running. Cars on
@@ -227,6 +232,71 @@ started, or four times the time of their route without other cars if that
 is longer, leave the network, so that gridlocks can form and dissolve. The
 statistics count them as not arrived, and the debug output lists them.
 
+## Trips
+
+Trips in the panel chooses where the vehicles start and end, on every
+network. The choice applies at once to new vehicles, while the others keep
+their trips, and the diagram keeps it: the attributes `trips` and
+`throughShare` of the page (Edit Data on the background shows them), which
+can be undone and are saved with the file. Copy Link adds `trips` and
+`through` (in percent) to the link of a town when they are not its default.
+The Vehicle section shows the trip of the followed vehicle, eg. "Local, home
+→ work or shops", "Commuter from outside, gate → centre" or "Through
+traffic, gate → gate". Show zones paints the homes in blue and the centre
+or the jobs in orange, as circles with an area in proportion to their
+weight, the gates as rings and the centre as a cross.
+
+- **Random**, the default of drawn networks and the examples: random
+  junctions as before, with half of the cars from or to a gate if there are
+  gates.
+- **Commuters to the centre**: 65 % of the trips go from homes toward the
+  centre and 35 % back. The centre is the junctions with `center=1`, else
+  the most connected junctions: the mean of the junctions weighted by the
+  square of their roads, twice for traffic lights and roundabouts. With R
+  the distance of three quarters of the junctions from there and r that of a
+  junction, it attracts in proportion to its roads × (e^−(r/0.45R)² + 0.05)
+  and has homes in proportion to its roads × (0.2 + r/R, at most 1.4), so
+  more toward the outskirts. 12 % of the trips start at a gate (commuters
+  from outside) or end at one (leaving town), with the weight of the gate.
+  The origin is drawn by its weight and the destination by its weight times
+  the gravity factor (1 − e^−(d/0.2R)²) × e^−d/1.2R of the straight
+  distance d, so that few trips are very short and fewer the longer they
+  are.
+- **Through traffic**: all trips go from one gate to another. Gates are the
+  junctions with `gate=1`, else the dead ends in the outer part of the
+  network (at least 0.6 of the largest distance from the centre), else its
+  outermost tenth. A gate weighs its lanes × (speed limit / 50 km/h)^1.5,
+  so main roads carry more, and a pair of gates the product × (0.05 +
+  ((1 − cos θ) / 2)²) with θ the angle between them at the centre, so that
+  most cross the network.
+- **Commuters and through traffic**: both, with the share of through
+  traffic of the slider below (25 % by default).
+- **Zones (OpenStreetMap)**, offered and the default for towns with zones:
+  the commuters of the gravity model between the homes and the jobs of the
+  junctions from OpenStreetMap (see
+  [Loading Your Town](#loading-your-town)), the jobs including shops,
+  schools and other places, with the share of through traffic of the
+  slider, and commuters from outside at the gates.
+
+Tested on 2026-10-29 at 50x after 25 s, in percent of the cars within half
+of R from the centre of the jobs (of the most connected junctions in the
+Town example), on fast roads (60 km/h or more, or two lanes per
+direction), and their average speed:
+
+| Network, cars | Random | Commuters | Through | Commuters and through | Zones |
+| --- | --- | --- | --- | --- | --- |
+| Town, 60 | 34 %, 30 %, 39 km/h | 54 %, 11 %, 29 km/h | 22 %, 53 %, 46 km/h | 41 %, 26 %, 36 km/h | |
+| Zug, all streets, 110 | 25 %, 6 %, 33 km/h | 43 %, 6 %, 31 km/h | 17 %, 11 %, 34 km/h | 28 %, 9 %, 33 km/h | 30 %, 6 %, 33 km/h |
+| Zurich, main and collector, 460 | 36 %, 43 %, 34 km/h | 58 %, 44 %, 33 km/h | 31 %, 57 %, 33 km/h | 51 %, 47 %, 34 km/h | 51 %, 46 %, 34 km/h |
+
+Commuters fill the roads toward the centre, through traffic the arterials,
+motorways and the ring of the Town, and both mixed or the zones lie in
+between. No mode jams where Random does not: 2 to 7 % of the cars stood,
+except through traffic in Zurich at first, when all cars start at the
+gates, and after 20 minutes 400 of 460 moved at 41 km/h, more than with
+Random (33 to 39 km/h). The trips cost no frame rate (Zurich with 500 cars
+at 10x: 38 frames per second in every mode).
+
 ## Examples
 
 The Example menu under Network opens small networks that show what the
@@ -299,6 +369,21 @@ Under Network, Load your town loads the roads of a town or city from
   query, the 12 last, so that a reload or a link opens them without
   loading again, also a section of a loaded town. Load again loads the
   roads of a cached town again.
+- The zones for the Zones trips come with the roads in the same query and
+  are cached with them: land use areas (residential, commercial and
+  retail, industrial) with only their bounding boxes, and the positions of
+  shops, offices and amenities where people work, learn, shop or go out
+  (schools, universities, hospitals, doctors, restaurants, cafés, bars,
+  cinemas, theatres, banks, pharmacies, post offices, libraries and
+  others). The junctions of the town other than its gates get homes for 40
+  per hectare of residential land and jobs for 60 per hectare of commercial
+  and retail land, 25 of industrial land and 8 per place (`homes` and
+  `jobs` in their style): an area fills 60 % of its bounding box and is
+  shared by the junctions in it, else goes to the nearest junction within
+  300 m, like a place. Towns that were cached before zones get them with
+  one query of their own when they open. Zurich (main and collector) has
+  266 land use areas and 8,371 places, Zug 30 and 580; the zones add 13 ms
+  to the build of Zurich (25 to 38 ms) and 2 % to its file.
 
 ### Map Background
 
@@ -439,7 +524,11 @@ The browser loads all data directly, as all services send
 - **Overpass API** loads the roads: the ways of the road classes in the
   bounding box of the town or section with their tags and nodes, the
   coordinates of the nodes and the nodes with traffic signals
-  (`[timeout:180]`, the default of Overpass, `out body qt` and `out skel qt`).
+  (`[timeout:180]`, the default of Overpass, `out body qt` and `out skel qt`),
+  and in the same query the zones, each kind after a marker element
+  (`make zone kind=...`): land use areas with `out ids bb qt` and places
+  with `out ids center qt`, without tags or geometry, about 0.4 MB more for
+  Zurich (6.3 MB, 48 s on 2026-10-29, mostly waiting for a busy server).
   A bounding box is faster for the servers than an area filter and the page
   needs the boundary to cut the roads anyway. Overpass answers runtime
   errors such as timeouts with status 200 and a `remark`, a full server with
@@ -531,8 +620,9 @@ then writes its own debug messages and has a Develop menu.
   fixed connection points, roads connect to their outline. It connects the ends of
   roads that are dropped on junctions. Other draw.io apps paint roads as
   plain connectors.
-- `js/osm.js` finds towns, loads and caches their roads from OpenStreetMap
-  and builds their networks as draw.io files, which the page opens like the
+- `js/osm.js` finds towns, loads and caches their roads and zones from
+  OpenStreetMap and builds their networks as draw.io files, with the homes
+  and jobs of the zones on their junctions, which the page opens like the
   examples (see [Loading Your Town](#loading-your-town)). It runs in the
   page, not in the editor, and in Node for `tools/osm2drawio.js`.
 - `js/map.js` runs in the editor and shows the map and the notice of
@@ -543,7 +633,12 @@ then writes its own debug messages and has a Develop menu.
   path with the outline of its type and the windows cut out, at its place
   and turned in its direction, filled with the color of its speed. The
   outlines are made once per type and degree, as a new path paints faster
-  than a new transform. It never changes the diagram, except for imports.
+  than a new transform. It never changes the diagram, except for imports
+  and the trips of a page that the panel sets. New cars get their trips
+  from `pickTrip` with the weights of `buildTrips`, made once per network,
+  by binary search in cumulative weights and the gravity factor by
+  rejection, so that a trip costs as little as a random one and the route
+  search after it.
   Each color set of the speeds (`colorSets`) has stops for light mode
   against the road of light mode (#a3a8ad) and for dark mode against the
   road of dark mode (#3c4043), each at least 3:1 at every step, which

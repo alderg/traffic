@@ -17,7 +17,9 @@
  * ?city=<name> or ?osm=<type>/<id> loads the road network of that town from
  * OpenStreetMap at start instead of the example (js/osm.js), with roads=main,
  * collector or all and a section as circle=<lat>,<lon>,<m> or
- * bbox=<south>,<west>,<north>,<east>. Copy Link puts the loaded town there.
+ * bbox=<south>,<west>,<north>,<east>. Copy Link puts the loaded town there,
+ * with trips=<mode> and through=<percent> if the trips of its page are not
+ * the default (see TrafficSimulation.setTrips).
  * Towns show the map of OpenStreetMap behind their roads (js/map.js) with
  * the tiles of ?tiles=<url with {z}, {x} and {y}>, tileMaxZoom=<zoom> and
  * tileAttribution=<text>, by default tile.openstreetmap.org.
@@ -43,6 +45,7 @@
 	var sim = null;
 	var roads = null;
 	var updateSelection = null;
+	var updateTrips = null;
 	var town = null;
 	var map = null;
 	var legendBar = null;
@@ -385,6 +388,12 @@
 		updateVehicle();
 		updateLegend();
 		centerHint.hidden = sim == null || !sim.isCenterPaused();
+
+		// The trips of the page follow file loads, page switches and undo
+		if (updateTrips != null)
+		{
+			updateTrips();
+		}
 	};
 
 	/**
@@ -826,6 +835,7 @@
 		var suggestTimer = null;
 		var view = null;
 		var loaded = null;
+		var pendingTrips = null;
 		var estimateId = 0;
 
 		function format(n)
@@ -1510,7 +1520,15 @@
 					{
 						loaded = {place: p, level: l, section: s};
 						updateLink();
-						setUrl();
+
+						// The trips of a link go with the town
+						if (pendingTrips != null)
+						{
+							sim.setTrips(pendingTrips.mode, pendingTrips.through);
+						}
+
+						setUrl(pendingTrips);
+						pendingTrips = null;
 
 						// Enough cars to see traffic on the roads
 						var cars = Math.max(100, Math.min(1500, Math.round(st.laneKm / 15) * 10));
@@ -1564,11 +1582,14 @@
 				parts.push(count(st.roundabouts, 'roundabout'));
 			}
 
+			var zones = st.zones != null && st.zones.homes + st.zones.jobs > 0;
 			infoText.appendChild(document.createTextNode(osm.levelNames[l] + ' of ' + ((s != null) ?
 				'a section of ' : '') + p.name + ': ' + parts.join(', ') + ' and ' + format(st.gates) +
 				' entries and exits at the ' + ((s != null) ? 'section' : ((p.rings != null) ? 'town limits' :
-				'circle')) + ', where half of the ' +
-				format(cars) + ' cars start or end. Roads of ' + formatDate(entry.dataDate || entry.date) +
+				'circle')) + ((zones) ? ' for through traffic and commuters from outside. The trips of the ' +
+				format(cars) + ' cars follow zones of homes and jobs from ' + count(st.zones.areas, 'land use area') +
+				' and ' + count(st.zones.places, 'place') + ' (Trips).' : ', where half of the ' + format(cars) +
+				' cars start or end.') + ' Roads of ' + formatDate(entry.dataDate || entry.date) +
 				' from ' + entry.server + ((entry.cached) ? ', loaded on ' + formatDate(entry.date) + '. ' : '. ')));
 			var reload = document.createElement('button');
 			reload.type = 'button';
@@ -1600,9 +1621,9 @@
 		};
 
 		/**
-		 * Puts the loaded town into the URL.
+		 * Puts the loaded town into the URL with the given trips, if any.
 		 */
-		function setUrl()
+		function setUrl(trips)
 		{
 			clearUrl();
 
@@ -1616,14 +1637,36 @@
 				{
 					params.set((loaded.section.bbox != null) ? 'bbox' : 'circle', osm.getSectionText(loaded.section));
 				}
+
+				if (trips != null)
+				{
+					params.set('trips', trips.mode);
+					params.set('through', Math.round(100 * trips.through));
+				}
 			}
 
 			writeParams();
 		};
 
+		/**
+		 * Returns the trips of the current page if they are not the default of
+		 * a town, zones or else random with 25 % of through traffic, else null.
+		 */
+		function getTrips()
+		{
+			var t = sim.getTripModes();
+			var zones = t.modes.some(function(m)
+			{
+				return m.value == 'zones' && m.available;
+			});
+
+			return (t.mode != ((zones) ? 'zones' : 'random') || Math.abs(t.through - 0.25) > 0.001) ?
+				{mode: t.mode, through: t.through} : null;
+		};
+
 		function clearUrl()
 		{
-			['city', 'osm', 'roads', 'circle', 'bbox'].forEach(function(key)
+			['city', 'osm', 'roads', 'circle', 'bbox', 'trips', 'through'].forEach(function(key)
 			{
 				params['delete'](key);
 			});
@@ -1631,7 +1674,7 @@
 
 		linkButton.addEventListener('click', function()
 		{
-			setUrl();
+			setUrl(getTrips());
 			var url = window.location.href;
 
 			function copied(ok)
@@ -1680,6 +1723,11 @@
 			var roads = (osm.levels.indexOf(params.get('roads')) >= 0) ? params.get('roads') : null;
 			var s = osm.parseSection(params.get('circle'), params.get('bbox'));
 			var label = name || key;
+			var through = parseFloat(params.get('through'));
+			pendingTrips = (sim.getTripModes().modes.some(function(m)
+			{
+				return m.value == params.get('trips');
+			})) ? {mode: params.get('trips'), through: (through >= 0 && through <= 100) ? through / 100 : 0.25} : null;
 			var t = startTask('Finding ' + label + '\u2026');
 			query.value = name || '';
 
@@ -1913,9 +1961,77 @@
 			updateLegend();
 		});
 
+		// Trips of the page, which the diagram keeps, with the share of
+		// through traffic for the modes that mix it in
+		var trips = document.getElementById('trips');
+		var through = document.getElementById('through');
+		var throughRow = document.getElementById('through-row');
+		var throughValue = document.getElementById('through-value');
+		var tripModes = null;
+
+		updateTrips = function()
+		{
+			var t = sim.getTripModes();
+			var modes = t.modes.filter(function(m)
+			{
+				return m.available;
+			});
+			var key = modes.map(function(m)
+			{
+				return m.value;
+			}).join(',');
+
+			if (key != tripModes)
+			{
+				tripModes = key;
+				trips.textContent = '';
+				addOptions(trips, modes.map(function(m)
+				{
+					return m.value;
+				}), modes.map(function(m)
+				{
+					return m.label;
+				}));
+			}
+
+			if (trips.value != t.mode)
+			{
+				trips.value = t.mode;
+			}
+
+			throughRow.hidden = t.mode != 'mixed' && t.mode != 'zones';
+
+			if (document.activeElement != through)
+			{
+				through.value = Math.round(100 * t.through);
+			}
+
+			throughValue.textContent = through.value + ' %';
+		};
+
+		trips.addEventListener('change', function()
+		{
+			sim.setTrips(trips.value, parseInt(through.value) / 100);
+			updateTrips();
+		});
+
+		through.addEventListener('input', function()
+		{
+			throughValue.textContent = through.value + ' %';
+		});
+
+		through.addEventListener('change', function()
+		{
+			sim.setTrips(trips.value, parseInt(through.value) / 100);
+			updateTrips();
+		});
+
+		updateTrips();
+
 		var labelsHint = document.getElementById('labels-hint');
 
-		['reroute', 'passEitherSide', 'passOncoming', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'labels', 'center'].forEach(function(key)
+		['reroute', 'passEitherSide', 'passOncoming', 'roads', 'lights', 'vehicles', 'adaptive', 'density', 'zones',
+			'labels', 'center'].forEach(function(key)
 		{
 			var checkbox = document.getElementById(key);
 			checkbox.checked = config[key];
