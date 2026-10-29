@@ -15,10 +15,14 @@
  * A road is a connector with shape=road. lanes=<n> is the number of lanes
  * per direction (1 to 4) and laneWidth the width of a lane (7 units). One
  * arrow is a one-way road, no or two arrows a road in both directions, as
- * in the simulation. The stroke color is the asphalt and the fill color the
- * markings: edge lines, dashed lane dividers, a dashed center line (solid
- * double line with more lanes), arrows on the lanes of one-way roads, stop
- * lines at traffic lights and give-way lines at roundabouts.
+ * in the simulation. laneSpec lists each lane from left to right in the
+ * drawn direction instead, as f (forward) or b (backward) followed by the
+ * turns it allows at its end (l, s, r, all if none), eg. laneSpec=b,fl,fsr.
+ * The stroke color is the asphalt and the fill color the markings: edge
+ * lines, dashed lane dividers, a dashed center line (solid double line with
+ * more lanes), arrows on the lanes of one-way roads, turn arrows before the
+ * end of lanes with turns, stop lines at traffic lights and give-way lines
+ * at roundabouts.
  *
  * A roundabout is a shape with shape=roundabout: a ring road with lanes on
  * the outside and a central island in islandColor. Traffic circulates
@@ -194,6 +198,63 @@ window.TrafficRoads = function(ui)
 	};
 
 	/**
+	 * Paints the arrow of the given turns (l, s, r) on the lane along the
+	 * given points, which are in the direction of travel, two lane widths
+	 * before its end.
+	 */
+	RoadShape.prototype.paintTurnArrow = function(c, pts, turns, lw)
+	{
+		var lengths = roads.getLengths(pts);
+		var total = lengths[lengths.length - 1];
+		var p = roads.getPointAt(pts, lengths, (total > 5 * lw) ? total - 2 * lw : total / 2);
+
+		// Point at u lane widths ahead and v to the right
+		function at(u, v)
+		{
+			return new mxPoint(p.x + (p.dx * u - p.dy * v) * lw, p.y + (p.dy * u + p.dx * v) * lw);
+		};
+
+		function line(a, b)
+		{
+			c.begin();
+			c.moveTo(a.x, a.y);
+			c.lineTo(b.x, b.y);
+			c.stroke();
+		};
+
+		function head(tip, b1, b2)
+		{
+			c.begin();
+			c.moveTo(tip.x, tip.y);
+			c.lineTo(b1.x, b1.y);
+			c.lineTo(b2.x, b2.y);
+			c.close();
+			c.fill();
+		};
+
+		if (p != null)
+		{
+			var straight = turns.indexOf('s') >= 0;
+			c.setStrokeWidth(lw / 8);
+			line(at(-0.9, 0), at((straight) ? 0.35 : 0.1, 0));
+
+			if (straight)
+			{
+				head(at(0.8, 0), at(0.35, -0.22), at(0.35, 0.22));
+			}
+
+			for (var side = -1; side <= 1; side += 2)
+			{
+				if (turns.indexOf((side < 0) ? 'l' : 'r') >= 0)
+				{
+					line(at(0.1, 0), at(0.1, side * 0.2));
+					head(at(0.1, side * 0.47), at(-0.12, side * 0.2), at(0.32, side * 0.2));
+				}
+			}
+		}
+	};
+
+	/**
 	 * Paints a line across the lanes from offset a to b to the right of the
 	 * incoming traffic at the given end of the path: solid in front of
 	 * traffic lights, dashed at roundabouts.
@@ -237,7 +298,6 @@ window.TrafficRoads = function(ui)
 		}
 
 		var dir = roads.getDirection(style);
-		var lanes = roads.getLanes(style);
 		var lw = roads.getLaneWidth(style);
 		var w = this.strokewidth;
 		var m = lw / 8;
@@ -263,6 +323,10 @@ window.TrafficRoads = function(ui)
 
 		if (markColor != mxConstants.NONE)
 		{
+			var plan = roads.getLanePlan(style);
+			var n = plan.length;
+			var forward = roads.getTravelLanes(plan, 1, lw);
+			var backward = roads.getTravelLanes(plan, -1, lw);
 			c.setShadow(false);
 			c.setStrokeColor(markColor);
 			c.setFillColor(markColor);
@@ -272,48 +336,50 @@ window.TrafficRoads = function(ui)
 			paintPath(c, roads.offsetPoints(path, w / 2 - m));
 			paintPath(c, roads.offsetPoints(path, m - w / 2));
 
-			// Lane dividers
+			// Dashed lane dividers in one direction, center lines between the
+			// directions, dashed with one lane each, else solid and double
 			c.setStrokeWidth(m);
-			c.setDashed(true, true);
-			c.setDashPattern('5 5');
 
-			for (var k = 1; k < lanes; k++)
+			for (var k = 1; k < n; k++)
 			{
-				if (dir == 0)
-				{
-					paintPath(c, roads.offsetPoints(path, k * lw));
-					paintPath(c, roads.offsetPoints(path, -k * lw));
-				}
-				else
-				{
-					paintPath(c, roads.offsetPoints(path, (k - lanes / 2) * lw));
-				}
-			}
+				var offset = (k - n / 2) * lw;
 
-			if (dir == 0)
-			{
-				// Center line, solid and double with more lanes
-				if (lanes == 1)
+				if (plan[k].dir == plan[k - 1].dir || (forward.length == 1 && backward.length == 1))
 				{
-					paintPath(c, path);
+					c.setDashed(true, true);
+					c.setDashPattern('5 5');
+					paintPath(c, roads.offsetPoints(path, offset));
 				}
 				else
 				{
 					c.setDashed(false);
-					paintPath(c, roads.offsetPoints(path, 0.8 * m));
-					paintPath(c, roads.offsetPoints(path, -0.8 * m));
+					paintPath(c, roads.offsetPoints(path, offset + 0.8 * m));
+					paintPath(c, roads.offsetPoints(path, offset - 0.8 * m));
 				}
 			}
-			else
-			{
-				// Arrows on each lane in the direction of travel
-				var travel = (dir > 0) ? path : path.slice().reverse();
-				var offsets = roads.getLaneOffsets(style);
-				c.setDashed(false);
 
-				for (var k = 0; k < offsets.length; k++)
+			// Arrows on the lanes of one-way roads and turn arrows before the
+			// end of lanes with turns
+			c.setDashed(false);
+
+			for (var d = -1; d <= 1; d += 2)
+			{
+				var lanes = (d > 0) ? forward : backward;
+				var travel = (d > 0) ? path : path.slice().reverse();
+
+				for (var k = 0; k < lanes.length; k++)
 				{
-					this.paintArrows(c, roads.offsetPoints(travel, offsets[k]), lw);
+					var pts = roads.offsetPoints(travel, lanes[k].offset);
+
+					if (dir != 0)
+					{
+						this.paintArrows(c, pts, lw);
+					}
+
+					if (lanes[k].turns != null)
+					{
+						this.paintTurnArrow(c, pts, lanes[k].turns, lw);
+					}
 				}
 			}
 
@@ -323,12 +389,12 @@ window.TrafficRoads = function(ui)
 				var source = i == 0;
 				var terminal = this.getTerminal(source);
 				var giveWay = terminal != null && roads.isRoundabout(terminal.style);
-				var stop = terminal != null && mxUtils.getValue(terminal.style, 'trafficLight', 0) > 0;
+				var lanes = (source) ? backward : forward;
 
-				if ((giveWay || stop) && (dir == 0 || (dir > 0) != source))
+				for (var k = 0; k < lanes.length && (giveWay || (terminal != null && roads.isLight(terminal.style))); k++)
 				{
-					this.paintEndLine(c, path, source, (dir == 0) ? 0 : m - w / 2,
-						w / 2 - m, m, giveWay);
+					this.paintEndLine(c, path, source, Math.max(lanes[k].offset - lw / 2, m - w / 2),
+						Math.min(lanes[k].offset + lw / 2, w / 2 - m), m, giveWay);
 				}
 			}
 		}
@@ -377,15 +443,15 @@ window.TrafficRoads = function(ui)
 
 		for (var k = 1; k < ring.lanes; k++)
 		{
-			var r = ring.inner + 1 + k * lw;
+			var r = ring.outer - 1 - k * ring.laneWidth;
 			c.ellipse(cx - r, cy - r, 2 * r, 2 * r);
 			c.stroke();
 		}
 
-		// Counterclockwise arrows on the ring
+		// Counterclockwise arrows on the outer lane of the ring
 		c.setDashed(false);
-		var r = ring.center;
-		var s = Math.min(lw, r * 0.35);
+		var r = ring.radii[0];
+		var s = Math.min(ring.laneWidth, r * 0.35);
 
 		for (var i = 0; i < 4; i++)
 		{
@@ -1005,19 +1071,71 @@ window.TrafficRoads = function(ui)
 		},
 
 		/**
-		 * Returns the lanes per direction and the direction of the given road,
-		 * 1 for source to target, -1 for the opposite and 0 for both.
+		 * Returns the most lanes per direction, the direction of the given road,
+		 * 1 for source to target, -1 for the opposite and 0 for both, and its
+		 * lanes from left to right (see TrafficRoads.getLanePlan).
 		 */
 		getRoad: function(cell)
 		{
 			var style = graph.getCellStyle(cell);
+			var plan = roads.getLanePlan(style);
 
-			return {lanes: roads.getLanes(style), dir: roads.getDirection(style)};
+			return {lanes: Math.max(roads.getTravelLanes(plan, 1, 1).length,
+				roads.getTravelLanes(plan, -1, 1).length), dir: roads.getDirection(style), plan: plan};
+		},
+
+		/**
+		 * Gives the given connector, which becomes a road, the given lanes
+		 * from left to right with direction (1 or -1) and turns (null for all).
+		 * The arrows, the lanes per direction and the stroke width follow, so
+		 * that other apps paint roads of the right width and direction.
+		 */
+		setLanePlan: function(cell, plan)
+		{
+			var style = graph.getCellStyle(cell);
+			var f = roads.getTravelLanes(plan, 1, 1).length;
+			var b = roads.getTravelLanes(plan, -1, 1).length;
+			var values = {shape: 'road', laneSpec: roads.getLaneSpec(plan), lanes: Math.max(f, b),
+				endArrow: (b == 0) ? 'block' : 'none', startArrow: (f == 0) ? 'block' : 'none',
+				strokeWidth: plan.length * roads.getLaneWidth(style)};
+
+			graph.model.beginUpdate();
+			try
+			{
+				for (var key in values)
+				{
+					graph.setCellStyles(key, values[key], [cell]);
+				}
+			}
+			finally
+			{
+				graph.model.endUpdate();
+			}
+		},
+
+		/**
+		 * Returns the lanes of the ring of the given roundabout.
+		 */
+		getRingLanes: function(cell)
+		{
+			return Math.min(3, roads.getLanes(graph.getCellStyle(cell)));
+		},
+
+		/**
+		 * Sets the lanes of the rings of the given roundabouts.
+		 */
+		setRingLanes: function(cells, lanes)
+		{
+			graph.setCellStyles('lanes', lanes, cells.filter(function(cell)
+			{
+				return getJunctionType(cell) == 'roundabout';
+			}));
 		},
 
 		/**
 		 * Sets the lanes and the direction of the given connectors, which
-		 * become roads. Null keeps the value of each road.
+		 * become roads with the same lanes in each direction and all turns.
+		 * Null keeps the value of each road.
 		 */
 		setRoads: function(cells, lanes, dir)
 		{
@@ -1030,9 +1148,9 @@ window.TrafficRoads = function(ui)
 					if (model.isEdge(cells[i]))
 					{
 						var style = graph.getCellStyle(cells[i]);
-						var l = (lanes != null) ? lanes : roads.getLanes(style);
+						var l = (lanes != null) ? lanes : this.getRoad(cells[i]).lanes;
 						var d = (dir != null) ? dir : roads.getDirection(style);
-						var values = {shape: 'road', lanes: l, endArrow: (d > 0) ? 'block' : 'none',
+						var values = {shape: 'road', lanes: l, laneSpec: null, endArrow: (d > 0) ? 'block' : 'none',
 							startArrow: (d < 0) ? 'block' : 'none',
 							strokeWidth: l * roads.getLaneWidth(style) * ((d == 0) ? 2 : 1)};
 
@@ -1069,15 +1187,122 @@ TrafficRoads.laneWidth = 7;
 TrafficRoads.snapDistance = 6;
 
 /**
- * Returns 1 for a road from source to target, -1 for the opposite
- * direction and 0 for both directions.
+ * Returns 1 for arrows from source to target, -1 for the opposite
+ * direction and 0 for no or two arrows.
  */
-TrafficRoads.getDirection = function(style)
+TrafficRoads.getArrowDirection = function(style)
 {
 	var end = mxUtils.getValue(style, mxConstants.STYLE_ENDARROW, mxConstants.NONE) != mxConstants.NONE;
 	var start = mxUtils.getValue(style, mxConstants.STYLE_STARTARROW, mxConstants.NONE) != mxConstants.NONE;
 
 	return (end == start) ? 0 : ((end) ? 1 : -1);
+};
+
+/**
+ * Returns 1 for a road from source to target, -1 for the opposite
+ * direction and 0 for both directions.
+ */
+TrafficRoads.getDirection = function(style)
+{
+	var plan = TrafficRoads.getLanePlan(style);
+	var f = false;
+	var b = false;
+
+	for (var i = 0; i < plan.length; i++)
+	{
+		f = f || plan[i].dir > 0;
+		b = b || plan[i].dir < 0;
+	}
+
+	return (f == b) ? 0 : ((f) ? 1 : -1);
+};
+
+/**
+ * Returns the lanes of the given road from left to right in the drawn
+ * direction, at most 8, with dir 1 for lanes from source to target and -1
+ * for the opposite and turns, the turns they allow at their end (l, s, r)
+ * or null for all. They come from laneSpec, else lanes=<n> per direction
+ * of the arrows.
+ */
+TrafficRoads.getLanePlan = function(style)
+{
+	var spec = mxUtils.getValue(style, 'laneSpec', null);
+	var result = [];
+
+	if (spec != null)
+	{
+		var tokens = String(spec).toLowerCase().split(',');
+
+		for (var i = 0; i < tokens.length && result.length < 8; i++)
+		{
+			var t = tokens[i].trim();
+			var turns = '';
+
+			for (var j = 0; j < 3; j++)
+			{
+				if (t.indexOf('lsr'.charAt(j), 1) > 0)
+				{
+					turns += 'lsr'.charAt(j);
+				}
+			}
+
+			if (t.charAt(0) == 'f' || t.charAt(0) == 'b')
+			{
+				result.push({dir: (t.charAt(0) == 'f') ? 1 : -1,
+					turns: (turns.length == 0 || turns.length == 3) ? null : turns});
+			}
+		}
+	}
+
+	if (result.length == 0)
+	{
+		var lanes = TrafficRoads.getLanes(style);
+		var dir = TrafficRoads.getArrowDirection(style);
+
+		for (var i = 0; i < 2 * lanes; i++)
+		{
+			if ((i < lanes) ? dir <= 0 : dir >= 0)
+			{
+				result.push({dir: (i < lanes) ? -1 : 1, turns: null});
+			}
+		}
+	}
+
+	return result;
+};
+
+/**
+ * Returns the laneSpec of the given lanes.
+ */
+TrafficRoads.getLaneSpec = function(plan)
+{
+	return plan.map(function(lane)
+	{
+		return ((lane.dir > 0) ? 'f' : 'b') + (lane.turns || '');
+	}).join(',');
+};
+
+/**
+ * Returns the lanes of the given lanes from left to right for travel in the
+ * given direction, with the offset of their center to the right of travel
+ * for the given lane width, their turns and their index in the road.
+ */
+TrafficRoads.getTravelLanes = function(plan, dir, lw)
+{
+	var n = plan.length;
+	var result = [];
+
+	for (var i = 0; i < n; i++)
+	{
+		var j = (dir > 0) ? i : n - 1 - i;
+
+		if (plan[j].dir == dir)
+		{
+			result.push({index: j, turns: plan[j].turns, offset: dir * (j + 0.5 - n / 2) * lw});
+		}
+	}
+
+	return result;
 };
 
 /**
@@ -1099,28 +1324,7 @@ TrafficRoads.getLaneWidth = function(style)
 
 TrafficRoads.getRoadWidth = function(style)
 {
-	return TrafficRoads.getLanes(style) * TrafficRoads.getLaneWidth(style) *
-		((TrafficRoads.getDirection(style) == 0) ? 2 : 1);
-};
-
-/**
- * Returns the offsets of the centers of the lanes of one direction to the
- * right of the direction of travel, from the left to the right lane. Both
- * directions of a two-way road have their lanes on the right.
- */
-TrafficRoads.getLaneOffsets = function(style)
-{
-	var lanes = TrafficRoads.getLanes(style);
-	var lw = TrafficRoads.getLaneWidth(style);
-	var twoWay = TrafficRoads.getDirection(style) == 0;
-	var result = [];
-
-	for (var k = 0; k < lanes; k++)
-	{
-		result.push(((twoWay) ? k + 0.5 : k - (lanes - 1) / 2) * lw);
-	}
-
-	return result;
+	return TrafficRoads.getLanePlan(style).length * TrafficRoads.getLaneWidth(style);
 };
 
 /**
@@ -1194,15 +1398,24 @@ TrafficRoads.isRoundabout = function(style)
 
 /**
  * Returns the radii of a roundabout of the given size: outer edge, central
- * island and center of the lanes, and the number of lanes of the ring.
+ * island and center of the ring, the number and width of its lanes, at
+ * most 3, and the radii of the centers of the lanes from the outside in.
  */
 TrafficRoads.getRing = function(style, w, h)
 {
 	var outer = Math.min(w, h) / 2;
-	var lanes = TrafficRoads.getLanes(style);
+	var lanes = Math.min(3, TrafficRoads.getLanes(style));
 	var width = Math.min(lanes * TrafficRoads.getLaneWidth(style) + 2, outer * 0.6);
+	var lw = Math.max(1, (width - 2) / lanes);
+	var radii = [];
 
-	return {outer: outer, inner: outer - width, center: outer - width / 2, lanes: lanes};
+	for (var k = 0; k < lanes; k++)
+	{
+		radii.push(outer - 1 - (k + 0.5) * lw);
+	}
+
+	return {outer: outer, inner: outer - width, center: outer - width / 2, lanes: lanes,
+		laneWidth: lw, radii: radii};
 };
 
 /**

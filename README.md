@@ -18,20 +18,27 @@ are driving.
 - A road with one arrow is a one-way road in the direction of the arrow.
   One with no or two arrows is a road in both directions, with its lanes on
   the right of each direction. `lanes=2` in the style of a road (Edit
-  Style) sets the lanes per direction, up to 4.
+  Style) sets the lanes per direction, up to 4. `laneSpec` sets each lane
+  from left to right in the drawn direction instead, as `f` (forward) or
+  `b` (backward) followed by the turns it allows (`l`, `s`, `r`, all if
+  none), for example `laneSpec=b,fl,fsr` for one lane back, a left-turn
+  lane and a lane for straight on and right. Roads show turn arrows before
+  the end of lanes with turns.
 - `trafficLight=10` in the style of a junction makes it a traffic light
   that gives green to one approach axis at a time for 10 seconds, followed
   by 3 seconds of yellow. The lights show their state while the simulation
   runs.
 - A roundabout (`shape=roundabout`) is a ring road where traffic circulates
-  counterclockwise. Cars give way to the ring when they enter.
+  counterclockwise, with 1 to 3 lanes (`lanes`). Cars give way to the ring
+  when they enter.
 - Free ends of roads join the junction they are on or other free ends
   nearby, else cars can start and end there.
 - The Selection section of the panel shows the selected junctions and
   roads: the type of junctions (crossing, traffic light, roundabout), the
-  green time of traffic lights with their cycle, and the lanes and
-  direction of roads. Changes apply at once, also while cars are driving,
-  and can be undone.
+  green time of traffic lights with their cycle, the lanes of roundabouts,
+  the lanes per direction and direction of roads, and for one road each
+  lane with its direction and turns. Changes apply at once, also while
+  cars are driving, and can be undone.
 - 1 unit is 1 meter and 1 step is 1 second. Curved connectors and
   waypoints are followed.
 
@@ -41,16 +48,21 @@ removed roads leave, the others keep their routes or look for new ones.
 ## Model
 
 Each lane is a row of cells of 7.5 m with the Nagel-Schreckenberg update:
-accelerate, brake to the gap, dawdle, move. Cars that are blocked change to
-a neighbor lane with more space ahead if no car is close behind there.
-Crossings let as many cars pass per step as their widest incoming road has
-lanes and take the incoming roads in turns. Cars drive through crossings on
-a curve at one cell per step (27 km/h) and enter the next road at its end. Roundabouts are a ring of cells
-with at most 2 cells per step (54 km/h); cars enter when the ring is free
-before the entry and leave where their next road starts. Cars drive from a
-random junction to another on the fastest route under the current speeds
-(Dijkstra) and look for another route after waiting 60 seconds at a
-junction.
+accelerate, brake to the gap, dawdle, move. Cars keep their lane. They
+change to the next lane when their lane does not allow their next turn,
+into smaller gaps closer to the end, to the left to pass slower cars, and
+back to the right when there is space, each only if no car is close behind
+there. Crossings let as many cars pass per step as their widest incoming
+road has lanes and take the incoming roads in turns. Cars only pass from
+lanes that allow their turn and drive through crossings on a curve at one
+cell per step (27 km/h) to a lane of the next road that suits their turn
+and the turn after it. Roundabouts are rings of lanes of cells at one cell
+per step; cars enter the outer lane when it is free before the entry, move
+inward for exits far away and back out before their exit, and leave where
+their next road starts. Cars drive from a random junction to another on
+the fastest route under the current speeds with the turns that the lanes
+allow (Dijkstra on the roads) and look for another route after waiting 60
+seconds at a junction.
 
 The examples are the networks of the Java version: Small, Race, Axhausen and
 Portland (8548 crossings). `tools/net2drawio.py` converts its `.net` files,

@@ -42,6 +42,13 @@
 				<label class="row"><span>Green (s)</span><input id="green" type="number" min="1" max="600"></label>
 				<p id="cycle" class="hint"></p>
 			</div>
+			<div id="ring-fields" hidden>
+				<label class="row"><span>Ring lanes</span><select id="ring-lanes">
+					<option value="1">1</option>
+					<option value="2">2</option>
+					<option value="3">3</option>
+				</select></label>
+			</div>
 		</div>
 		<div id="road-fields" hidden>
 			<label class="row"><span>Lanes</span><select id="lanes">
@@ -55,6 +62,12 @@
 				<option value="1">Forward only</option>
 				<option value="-1">Backward only</option>
 			</select></label>
+			<div id="lane-fields">
+				<p class="hint">Lanes from left to right in the drawn direction, with the turns they allow.</p>
+				<div id="lane-list" class="lane-list"></div>
+				<button id="add-lane" type="button">Add Lane</button>
+			</div>
+			<p id="lanes-hint" class="hint" hidden>Select one road to set its lanes one by one.</p>
 		</div>
 	</section>
 	<section>
@@ -70,7 +83,7 @@
 		<ul>
 			<li>Open Shapes for crossings, traffic lights, roundabouts and roads with 1 to 3 lanes.</li>
 			<li>Drop the ends of a road on junctions, select two junctions and click a road, or drag from the arrows of a junction.</li>
-			<li>Select a junction or a road to change its type, green time, lanes or direction under Selection.</li>
+			<li>Select a junction or a road to change its type, green time and ring lanes, or the direction and turns of each lane, under Selection.</li>
 			<li>A road with one arrow is a one-way road, one with no or two arrows a road in both directions. <code>lanes=2</code> in its style sets the lanes per direction.</li>
 			<li>Traffic lights give each approach axis 10 seconds of green (<code>trafficLight=10</code>), then 3 seconds of yellow.</li>
 			<li>1 unit is 1 meter and 1 step is 1 second.</li>

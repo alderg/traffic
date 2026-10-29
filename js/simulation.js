@@ -5,27 +5,34 @@
  * Traffic simulation on a draw.io diagram, a port of sim.traffic (Gaudenz
  * Alder, ETH Zurich, 2000).
  *
- * Connectors are roads and the shapes they connect are junctions. A
- * connector with one arrow is a one-way road in the direction of the arrow,
- * one with no or two arrows a road in both directions with its lanes on the
- * right of each direction. lanes=<n> in the style of a road is the number of
- * lanes per direction. Each direction is a link of lanes of cells of 7.5
- * units (1 unit is 1 m, 1 step is 1 s) with the Nagel-Schreckenberg update:
- * change lanes, accelerate, brake to the gap, dawdle, move. Cars change to a
- * neighbor lane with more space ahead if no car is close behind there.
+ * Connectors are roads and the shapes they connect are junctions. Each road
+ * has lanes from left to right in its drawn direction, each from source to
+ * target or the opposite and with the turns it allows at its end (see
+ * TrafficRoads.getLanePlan in js/roads.js): laneSpec in its style, else
+ * lanes=<n> per direction of its arrows, where one arrow is a one-way road
+ * and no or two arrows a road in both directions. Each direction is a link
+ * of lanes of cells of 7.5 units (1 unit is 1 m, 1 step is 1 s) with the
+ * Nagel-Schreckenberg update: change lanes, accelerate, brake to the gap,
+ * dawdle, move. Cars keep their lane and change to the next lane when their
+ * lane does not allow their next turn, earlier and into smaller gaps closer
+ * to the end, to the left to pass slower cars, and back to the right when
+ * there is space, in each case only if no car is close behind there.
  *
  * Crossings let as many cars pass per step as their widest incoming road has
- * lanes and take the incoming links in turns. Cars drive through crossings
- * on a curve at about one cell per step and enter their next link at its
- * end, one car per lane and step. A shape with
- * trafficLight=<steps> in its style gives green to the links of one approach
- * axis at a time for that many steps, followed by 3 steps of yellow. A shape
- * with shape=roundabout is a ring of cells where traffic circulates
- * counterclockwise: cars enter when the ring is free before the entry and
- * leave where their next road starts. Free ends of roads join the junction
- * they are on or other free ends nearby, else they are dead ends. Cars drive
- * from a random junction to another on the fastest route under the current
- * speeds and look for another route after waiting at a junction.
+ * lanes and take the incoming links in turns. Cars only pass from lanes
+ * that allow their turn and drive through crossings on a curve at about one
+ * cell per step to a lane of the next link that suits their turn and the
+ * turn after it. A shape with trafficLight=<steps> in its style gives green
+ * to the links of one approach axis at a time for that many steps,
+ * followed by 3 steps of yellow. A shape with shape=roundabout is a ring
+ * with lanes of cells where traffic circulates counterclockwise at one cell
+ * per step: cars enter the outer lane when it is free before the entry,
+ * move inward for exits that are far away and back out before their exit,
+ * and leave from the outer lane where their next road starts. Free ends of
+ * roads join the junction they are on or other free ends nearby, else they
+ * are dead ends. Cars drive from a random junction to another on the
+ * fastest route under the current speeds with the turns their lanes allow
+ * and look for another route after waiting at a junction.
  *
  * Cars, traffic lights and the density of the lanes are painted into the
  * overlay pane. The simulation never changes the diagram, only importFile
@@ -41,8 +48,10 @@ window.TrafficSimulation = function(ui, listener)
 	var cellLength = 7.5;
 	var replanSteps = 60;
 	var yellowSteps = 3;
-	var ringSpeed = 2;
-	var laneChangeProbability = 0.8;
+	var ringSpeed = 1;
+	var overtakeProbability = 0.8;
+	var keepRightProbability = 0.3;
+	var turnCells = 12;
 	var maxStepsPerFrame = 100;
 	var maxFrameTime = 40;
 	var maxNewCarsPerStep = 10;
@@ -69,41 +78,113 @@ window.TrafficSimulation = function(ui, listener)
 	var lastStats = 0;
 
 	/**
-	 * One direction of a road: lanes of cells from one junction to another,
-	 * at the given offsets to the right of the given points. All lanes have
-	 * the same number of cells, so that cars change lanes at the same place.
+	 * One direction of a road: the given lanes of cells from one junction to
+	 * another, from left to right with the offset of their center to the
+	 * right of the given points, their turns and their index in the road. All
+	 * lanes have the same number of cells, so that cars change lanes at the
+	 * same place.
 	 */
-	function Link(key, from, to, points, offsets)
+	function Link(key, from, to, points, lanes, lw)
 	{
 		this.key = key;
 		this.from = from;
 		this.to = to;
 		this.points = points;
-		this.offsets = offsets;
+		this.lanes = lanes;
+		this.laneWidth = lw;
+		this.offsets = [];
 		this.length = roads.getLengths(points)[points.length - 1];
 		this.paths = [];
 		this.cells = [];
 		this.transit = [];
+		this.counts = [];
+		this.adjacent = [];
 
 		var n = Math.min(maxLinkCells, Math.max(2, Math.round(this.length / cellLength)));
 
-		for (var k = 0; k < offsets.length; k++)
+		for (var k = 0; k < lanes.length; k++)
 		{
-			var pts = (offsets[k] != 0) ? roads.offsetPoints(points, offsets[k]) : points;
+			var pts = (lanes[k].offset != 0) ? roads.offsetPoints(points, lanes[k].offset) : points;
+			this.offsets.push(lanes[k].offset);
 			this.paths.push({points: pts, lengths: roads.getLengths(pts)});
 			this.cells.push(new Array(n).fill(null));
 			this.transit.push([]);
+			this.counts.push(0);
+			this.adjacent.push(k > 0 && Math.abs(lanes[k].index - lanes[k - 1].index) == 1);
 		}
 
 		this.out = n - 1;
+		this.index = 0;
 		this.queue = [];
 		this.vehicles = 0;
 		this.vavg = 0;
 		this.merged = false;
+		this.moves = null;
+		this.reach = null;
+		this.open = false;
 		this.nodes = null;
-		this.hue = null;
+		this.hues = null;
 		this.startCell = -1;
 		this.endCell = -1;
+	};
+
+	/**
+	 * Returns the turn to the given next link: l, s or r.
+	 */
+	Link.prototype.getTurn = function(next)
+	{
+		return (this.moves != null && this.moves.has(next)) ? this.moves.get(next) : 's';
+	};
+
+	/**
+	 * Returns true if the given lane allows the turn to the given next link,
+	 * always at roundabouts and on links where no lane allows any turn.
+	 */
+	Link.prototype.allows = function(lane, next)
+	{
+		var turns = this.lanes[lane].turns;
+
+		return next == null || turns == null || this.open || this.to.rings != null ||
+			turns.indexOf(this.getTurn(next)) >= 0;
+	};
+
+	/**
+	 * Returns true if the given lanes are next to each other in the road or
+	 * connected by lanes that are.
+	 */
+	Link.prototype.isConnected = function(k, l)
+	{
+		for (var i = Math.min(k, l) + 1; i <= Math.max(k, l); i++)
+		{
+			if (!this.adjacent[i])
+			{
+				return false;
+			}
+		}
+
+		return true;
+	};
+
+	/**
+	 * Returns -1 or 1 for the side of the nearest connected lane that allows
+	 * the turn to the given next link or 0 if there is none.
+	 */
+	Link.prototype.getTurnSide = function(k, next)
+	{
+		for (var d = 1; d < this.cells.length; d++)
+		{
+			for (var s = -1; s <= 1; s += 2)
+			{
+				var l = k + s * d;
+
+				if (l >= 0 && l < this.cells.length && this.allows(l, next) && this.isConnected(k, l))
+				{
+					return s;
+				}
+			}
+		}
+
+		return 0;
 	};
 
 	/**
@@ -140,10 +221,21 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the lane with a free first cell and the most space ahead or -1.
-	 * Lanes with cars on their way through the crossing are not free.
+	 * Returns true if a car can change from lane k to lane l at the given cell
+	 * with the given number of free cells behind it.
 	 */
-	Link.prototype.getFreeLane = function()
+	Link.prototype.canChange = function(k, l, cell, behind)
+	{
+		return l >= 0 && l < this.cells.length && Math.abs(k - l) == 1 && this.adjacent[Math.max(k, l)] &&
+			this.cells[l][cell] == null && this.isFreeBehind(l, cell, behind);
+	};
+
+	/**
+	 * Returns the lane with a free first cell, no cars on their way through
+	 * the crossing to it and the most space ahead, preferring lanes that
+	 * allow the turn to the given next link, or -1.
+	 */
+	Link.prototype.getFreeLane = function(next)
 	{
 		var result = -1;
 		var best = -1;
@@ -152,11 +244,11 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			if (this.cells[k][0] == null && this.transit[k].length == 0)
 			{
-				var gap = this.getGap(k, 0, config.vmax);
+				var rank = this.getGap(k, 0, config.vmax) + ((this.allows(k, next)) ? 100 : 0);
 
-				if (gap > best)
+				if (rank > best)
 				{
-					best = gap;
+					best = rank;
 					result = k;
 				}
 			}
@@ -166,12 +258,62 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the lane where a car can enter the link from its junction or
-	 * -1. Through traffic and cars that start on the link take turns.
+	 * Returns the lane where the given car can enter the link from its
+	 * junction or -1. Through traffic and cars that start on the link take
+	 * turns.
 	 */
-	Link.prototype.accept = function()
+	Link.prototype.accept = function(v)
 	{
-		return (this.queue.length == 0 || this.merged) ? this.getFreeLane() : -1;
+		return (this.queue.length == 0 || this.merged) ? this.getFreeLane(v.after()) : -1;
+	};
+
+	/**
+	 * Returns the lane, curve and steps for the given car to drive through
+	 * the crossing from the given lane of the given link into this link, or
+	 * null. The first cell must be free and the car at least one step behind
+	 * the last car on its way to the lane. Lanes that allow the next turn
+	 * come first, then right lanes for right turns, left lanes for left
+	 * turns and the same lane from the right for straight ahead, then space.
+	 * Through traffic and cars that start on the link take turns.
+	 */
+	Link.prototype.chooseEntry = function(v, link, k)
+	{
+		var result = null;
+
+		if (this.queue.length == 0 || this.merged)
+		{
+			var turn = link.getTurn(this);
+			var after = v.after();
+			var n = this.cells.length;
+			var best = Infinity;
+
+			for (var l = 0; l < n; l++)
+			{
+				var cars = this.transit[l];
+
+				if (this.cells[l][0] == null)
+				{
+					var curve = createCurve(link, k, this, l);
+					var steps = getTransitSteps(curve);
+
+					if (cars.length == 0 || cars[cars.length - 1].left < steps - 1)
+					{
+						var place = (turn == 'r') ? n - 1 - l : ((turn == 'l') ? l :
+							Math.abs((n - 1 - l) - (link.cells.length - 1 - k)));
+						var rank = ((this.allows(l, after)) ? 0 : 100) + 10 * place -
+							this.getGap(l, 0, config.vmax) + cars.length;
+
+						if (rank < best)
+						{
+							best = rank;
+							result = {lane: l, curve: curve, steps: steps};
+						}
+					}
+				}
+			}
+		}
+
+		return result;
 	};
 
 	/**
@@ -200,40 +342,6 @@ window.TrafficSimulation = function(ui, listener)
 		this.vehicles--;
 
 		return v;
-	};
-
-	/**
-	 * Returns the lane where a car can start to drive through the crossing
-	 * to the link in the given number of steps or -1. The first cell must be
-	 * free and the car must be at least one step behind the last car on its
-	 * way to the lane. Through traffic and cars that start on the link take
-	 * turns.
-	 */
-	Link.prototype.acceptTransit = function(steps)
-	{
-		var result = -1;
-		var best = -Infinity;
-
-		if (this.queue.length == 0 || this.merged)
-		{
-			for (var k = 0; k < this.cells.length; k++)
-			{
-				var cars = this.transit[k];
-
-				if (this.cells[k][0] == null && (cars.length == 0 || cars[cars.length - 1].left < steps - 1))
-				{
-					var gap = this.getGap(k, 0, config.vmax) - cars.length;
-
-					if (gap > best)
-					{
-						best = gap;
-						result = k;
-					}
-				}
-			}
-		}
-
-		return result;
 	};
 
 	/**
@@ -351,50 +459,67 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Moves cars that are blocked ahead to a neighbor lane with more space
-	 * ahead if no car is close behind there (Rickert et al. 1996). Decides
-	 * for all cars first, so that the order of the lanes does not matter.
+	 * Returns the lane that the given car in lane k and the given cell
+	 * changes to. Cars in lanes that do not allow their next turn move
+	 * toward one that does, into gaps of one cell in the last turnCells
+	 * cells. Others pass on the left when they are blocked and there is more
+	 * space, and go back to the right when there is space for their speed.
+	 */
+	Link.prototype.chooseLane = function(v, k, cell)
+	{
+		var vmax = config.vmax;
+		var next = v.next();
+		var left = this.out - cell;
+
+		if (next != null && !this.allows(k, next))
+		{
+			var side = this.getTurnSide(k, next);
+
+			return (side != 0 && this.canChange(k, k + side, cell, (left > turnCells) ? vmax : 1)) ? k + side : k;
+		}
+
+		if (left > 0)
+		{
+			var gap = this.getGap(k, cell, vmax);
+
+			if (gap < Math.min(v.v + 1, vmax) && this.canChange(k, k - 1, cell, vmax) &&
+				(left > turnCells || this.allows(k - 1, next)) && this.getGap(k - 1, cell, vmax) > gap &&
+				Math.random() < overtakeProbability)
+			{
+				return k - 1;
+			}
+
+			if (this.canChange(k, k + 1, cell, vmax) && (left > turnCells || this.allows(k + 1, next)) &&
+				this.getGap(k + 1, cell, vmax) >= Math.min(v.v + 2, vmax) && Math.random() < keepRightProbability)
+			{
+				return k + 1;
+			}
+		}
+
+		return k;
+	};
+
+	/**
+	 * Changes lanes, deciding for all cars first, so that the order of the
+	 * lanes does not matter.
 	 */
 	Link.prototype.changeLanes = function()
 	{
-		var vmax = config.vmax;
 		var moves = [];
 
 		for (var k = 0; k < this.cells.length; k++)
 		{
-			for (var i = 0; i < this.out; i++)
+			for (var i = 0; i <= this.out; i++)
 			{
 				var v = this.cells[k][i];
 
 				if (v != null)
 				{
-					var gap = this.getGap(k, i, vmax);
+					var l = this.chooseLane(v, k, i);
 
-					if (gap < Math.min(v.v + 1, vmax))
+					if (l != k)
 					{
-						var target = -1;
-
-						for (var d = -1; d <= 1; d += 2)
-						{
-							var l = k + d;
-
-							if (l >= 0 && l < this.cells.length && this.cells[l][i] == null &&
-								this.isFreeBehind(l, i, vmax))
-							{
-								var g = this.getGap(l, i, vmax);
-
-								if (g > gap)
-								{
-									gap = g;
-									target = l;
-								}
-							}
-						}
-
-						if (target >= 0 && Math.random() < laneChangeProbability)
-						{
-							moves.push([v, k, target, i]);
-						}
+						moves.push([v, k, l, i]);
 					}
 				}
 			}
@@ -422,13 +547,18 @@ window.TrafficSimulation = function(ui, listener)
 
 		if (this.vehicles == 0 && this.queue.length == 0)
 		{
+			for (var k = 0; k < this.counts.length; k++)
+			{
+				this.counts[k] = 0;
+			}
+
 			return;
 		}
 
 		// Cars enter traffic at the start of their first link
 		if (this.queue.length > 0)
 		{
-			var lane = this.getFreeLane();
+			var lane = this.getFreeLane(this.queue[0].after());
 
 			if (lane >= 0)
 			{
@@ -451,6 +581,7 @@ window.TrafficSimulation = function(ui, listener)
 		for (var k = 0; k < this.cells.length; k++)
 		{
 			var cells = this.cells[k];
+			var count = 0;
 
 			// Accelerates, brakes to the gap and dawdles
 			for (var i = 0; i <= out; i++)
@@ -460,6 +591,7 @@ window.TrafficSimulation = function(ui, listener)
 				if (v != null)
 				{
 					v.v = Math.min(this.getGap(k, i, vmax), vmax, v.v + 1);
+					count++;
 
 					if (v.v > 0 && Math.random() < noise)
 					{
@@ -482,6 +614,8 @@ window.TrafficSimulation = function(ui, listener)
 					moved += car.v;
 				}
 			}
+
+			this.counts[k] = count;
 		}
 
 		this.vavg = (this.vehicles > 0) ? moved / this.vehicles : 0;
@@ -536,7 +670,8 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Lets the first cars that can enter their next link pass, taking the
-	 * incoming links with green in turns.
+	 * incoming links with green in turns. Cars only pass from lanes that
+	 * allow their turn, unless they waited for two reroutes.
 	 */
 	Crossing.prototype.step = function()
 	{
@@ -570,14 +705,13 @@ window.TrafficSimulation = function(ui, listener)
 				var v = link.cells[k][link.out];
 				var next = (v != null) ? v.next() : null;
 
-				if (next != null && next.from == this)
+				if (next != null && next.from == this && (link.allows(k, next) || v.wait > 2 * replanSteps))
 				{
-					var steps = getTransitSteps(createCurve(link, k, next, Math.min(k, next.cells.length - 1)));
-					var lane = next.acceptTransit(steps);
+					var entry = next.chooseEntry(v, link, k);
 
-					if (lane >= 0)
+					if (entry != null)
 					{
-						next.addTransit(link.pop(k), lane, steps, createCurve(link, k, next, lane));
+						next.addTransit(link.pop(k), entry.lane, entry.steps, entry.curve);
 						this.finger = (this.finger + i + 1) % green.length;
 						passed++;
 					}
@@ -600,17 +734,26 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the path of a car through a crossing from the last cell of the
-	 * given lane of a link to the first cell of the given lane of the next
-	 * link: a quadratic curve through the intersection of the lanes or a
-	 * line if they do not intersect in front of both cells.
+	 * Returns the turn from the given link to the given next link: l for
+	 * left and U-turns, r for right and s for straight ahead within 30
+	 * degrees (y down).
 	 */
-	function createCurve(link, lane, next, nextLane)
+	function getTurn(link, next)
 	{
-		var p0 = link.getPoint(lane, link.out);
-		var p1 = next.getPoint(nextLane, 0);
-		var a = getDirection(link.paths[lane].points, false);
-		var b = getDirection(next.paths[nextLane].points, true);
+		var a = getDirection(link.points, false);
+		var b = getDirection(next.points, true);
+		var angle = Math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+
+		return (angle < -Math.PI / 6 || angle > 5 * Math.PI / 6) ? 'l' : ((angle > Math.PI / 6) ? 'r' : 's');
+	};
+
+	/**
+	 * Returns a quadratic curve from p0 in direction a to p1 in direction b
+	 * through the intersection of the directions or a line if they do not
+	 * intersect in front of both points.
+	 */
+	function createCurveBetween(p0, a, p1, b)
+	{
 		var c = new mxPoint((p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
 		var dx = p1.x - p0.x;
 		var dy = p1.y - p0.y;
@@ -630,6 +773,16 @@ window.TrafficSimulation = function(ui, listener)
 
 		return {p0: p0, c: c, p1: p1, length: (roads.getDistance(p0, c) +
 			roads.getDistance(c, p1) + dist) / 2};
+	};
+
+	/**
+	 * Returns the path of a car through a crossing from the last cell of the
+	 * given lane of a link to the first cell of the given lane of the next.
+	 */
+	function createCurve(link, lane, next, nextLane)
+	{
+		return createCurveBetween(link.getPoint(lane, link.out), getDirection(link.paths[lane].points, false),
+			next.getPoint(nextLane, 0), getDirection(next.paths[nextLane].points, true));
 	};
 
 	/**
@@ -654,6 +807,31 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
+	 * Adds points along the given curve to the given points.
+	 */
+	function addCurvePoints(pts, curve)
+	{
+		for (var i = 0; i <= 8; i++)
+		{
+			pts.push(getCurvePoint(curve, i / 8));
+		}
+
+		return pts;
+	};
+
+	/**
+	 * Returns the point at the given fraction of the length of the given
+	 * points.
+	 */
+	function getPathPoint(pts, f)
+	{
+		var lengths = roads.getLengths(pts);
+
+		return roads.getPointAt(pts, lengths, f * lengths[lengths.length - 1]) ||
+			pts[(f < 0.5) ? 0 : pts.length - 1];
+	};
+
+	/**
 	 * Returns the fraction of the way through the crossing.
 	 */
 	function getProgress(t)
@@ -662,51 +840,73 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Roundabout: a ring of cells around the center at the given radius
-	 * where traffic circulates counterclockwise. Cell i is at the angle
-	 * -2 pi i / n (y down). Cars enter from the end of their link when the
-	 * ring is free up to ringSpeed cells before the entry, and leave at the
-	 * cell where their next link starts, or circle once more if it is full.
+	 * Roundabout: a ring of lanes of cells around the center at the given
+	 * radii from the outside in, where traffic circulates counterclockwise.
+	 * Cell i is at the angle -2 pi i / n (y down) in all lanes. Cars enter
+	 * the outer lane from the end of their link when it is free up to
+	 * ringSpeed cells before the entry, move inward for exits that are far
+	 * away and back out before their exit, and leave from the outer lane at
+	 * the cell where their next link starts, or circle once more if it is
+	 * full.
 	 */
-	function Roundabout(id, x, y, radius)
+	function Roundabout(id, x, y, radii)
 	{
 		Crossing.call(this, id, x, y, 0);
-		this.radius = radius;
-		this.ring = new Array(Math.max(6, Math.round(2 * Math.PI * radius / cellLength))).fill(null);
+		this.radii = radii;
+		this.size = Math.max(6, Math.round(2 * Math.PI * radii[0] / cellLength));
+		this.rings = [];
 		this.vehicles = 0;
+
+		for (var l = 0; l < radii.length; l++)
+		{
+			this.rings.push(new Array(this.size).fill(null));
+		}
 	};
 
 	/**
-	 * Returns the cell of the ring nearest to the given point.
+	 * Returns the cell nearest to the given point.
 	 */
 	Roundabout.prototype.getCell = function(pt)
 	{
-		var n = this.ring.length;
+		var n = this.size;
 		var a = Math.atan2(pt.y - this.y, pt.x - this.x);
 
 		return ((Math.round(-a * n / (2 * Math.PI)) % n) + n) % n;
 	};
 
 	/**
-	 * Returns the point of the given cell, which may be fractional.
+	 * Returns the point of the given cell, which may be fractional, in the
+	 * given lane or at the given radius.
 	 */
-	Roundabout.prototype.getPoint = function(cell)
+	Roundabout.prototype.getPoint = function(lane, cell, radius)
 	{
-		var a = -2 * Math.PI * cell / this.ring.length;
+		var a = -2 * Math.PI * cell / this.size;
+		var r = (radius != null) ? radius : this.radii[lane];
 
-		return new mxPoint(this.x + this.radius * Math.cos(a), this.y + this.radius * Math.sin(a));
+		return new mxPoint(this.x + r * Math.cos(a), this.y + r * Math.sin(a));
 	};
 
 	/**
-	 * Returns true if the given cell and count cells before it are free.
+	 * Returns the direction of traffic at the given cell.
 	 */
-	Roundabout.prototype.isFree = function(cell, count)
+	Roundabout.prototype.getTangent = function(cell)
 	{
-		var n = this.ring.length;
+		var a = -2 * Math.PI * cell / this.size;
+
+		return new mxPoint(Math.sin(a), -Math.cos(a));
+	};
+
+	/**
+	 * Returns true if the given cell and count cells before it are free in
+	 * the given lane.
+	 */
+	Roundabout.prototype.isFree = function(lane, cell, count)
+	{
+		var n = this.size;
 
 		for (var d = 0; d <= count; d++)
 		{
-			if (this.ring[(cell - d + n) % n] != null)
+			if (this.rings[lane][(cell - d + n) % n] != null)
 			{
 				return false;
 			}
@@ -715,47 +915,107 @@ window.TrafficSimulation = function(ui, listener)
 		return true;
 	};
 
+	/**
+	 * Returns the cells from the given cell to the exit of the given car.
+	 */
+	Roundabout.prototype.getExitDistance = function(v, cell)
+	{
+		var next = v.next();
+
+		return (next != null) ? (next.startCell - cell + this.size) % this.size : 0;
+	};
+
+	/**
+	 * Moves cars inward if their exit is far away and outward before it, if
+	 * the cell next to them and ringSpeed cells behind it are free.
+	 */
+	Roundabout.prototype.changeLanes = function(vmax)
+	{
+		var n = this.size;
+		var lanes = this.rings.length;
+		var moves = [];
+
+		for (var l = 0; l < lanes; l++)
+		{
+			for (var i = 0; i < n; i++)
+			{
+				var v = this.rings[l][i];
+
+				if (v != null)
+				{
+					var target = Math.min(lanes - 1, Math.floor(this.getExitDistance(v, i) * lanes / n));
+					var t = l + ((target > l) ? 1 : ((target < l) ? -1 : 0));
+
+					if (t != l && this.isFree(t, i, vmax))
+					{
+						moves.push([v, l, t, i]);
+					}
+				}
+			}
+		}
+
+		for (var j = 0; j < moves.length; j++)
+		{
+			var m = moves[j];
+
+			if (this.rings[m[2]][m[3]] == null)
+			{
+				this.rings[m[1]][m[3]] = null;
+				this.rings[m[2]][m[3]] = m[0];
+				m[0].ringLane = m[2];
+			}
+		}
+	};
+
 	Roundabout.prototype.step = function()
 	{
-		var ring = this.ring;
-		var n = ring.length;
+		var n = this.size;
 		var vmax = Math.min(config.vmax, ringSpeed);
 
 		if (this.vehicles > 0)
 		{
+			if (this.rings.length > 1)
+			{
+				this.changeLanes(vmax);
+			}
+
 			var cars = [];
 
 			// Speeds from the gaps before the move, then all cars move at once
-			for (var i = 0; i < n; i++)
+			for (var l = 0; l < this.rings.length; l++)
 			{
-				var v = ring[i];
+				var ring = this.rings[l];
 
-				if (v != null)
+				for (var i = 0; i < n; i++)
 				{
-					var gap = 0;
+					var v = ring[i];
 
-					while (gap < vmax && ring[(i + gap + 1) % n] == null)
+					if (v != null)
 					{
-						gap++;
+						var gap = 0;
+
+						while (gap < vmax && ring[(i + gap + 1) % n] == null)
+						{
+							gap++;
+						}
+
+						v.v = Math.min(gap, vmax, v.v + 1);
+						var d = this.getExitDistance(v, i);
+
+						// Stops at the exit
+						if (l == 0 && d > 0 && d < v.v)
+						{
+							v.v = d;
+						}
+
+						cars.push(v);
 					}
-
-					v.v = Math.min(gap, vmax, v.v + 1);
-					var next = v.next();
-					var d = (next != null) ? (next.startCell - i + n) % n : 0;
-
-					// Stops at the exit
-					if (d > 0 && d < v.v)
-					{
-						v.v = d;
-					}
-
-					cars.push(v);
 				}
 			}
 
 			for (var i = 0; i < cars.length; i++)
 			{
-				ring[cars[i].cell] = null;
+				this.rings[cars[i].ringLane][cars[i].cell] = null;
 			}
 
 			for (var i = 0; i < cars.length; i++)
@@ -763,10 +1023,10 @@ window.TrafficSimulation = function(ui, listener)
 				var v = cars[i];
 				v.cell = (v.cell + v.v) % n;
 				v.driven += v.v;
-				ring[v.cell] = v;
+				this.rings[v.ringLane][v.cell] = v;
 			}
 
-			// Leaves at the exit if the next link has space
+			// Leaves the outer lane at the exit if the next link has space
 			for (var i = 0; i < cars.length; i++)
 			{
 				var v = cars[i];
@@ -774,25 +1034,26 @@ window.TrafficSimulation = function(ui, listener)
 
 				if (next == null)
 				{
-					ring[v.cell] = null;
+					this.rings[v.ringLane][v.cell] = null;
 					this.vehicles--;
 					park(v);
 				}
-				else if (next.from == this && next.startCell == v.cell)
+				else if (v.ringLane == 0 && next.from == this && next.startCell == v.cell)
 				{
-					var lane = next.accept();
+					var lane = next.accept(v);
 
 					if (lane >= 0)
 					{
-						ring[v.cell] = null;
+						this.rings[0][v.cell] = null;
 						this.vehicles--;
+						v.path = this.getExitPath(v, next, lane);
 						next.enter(v, lane);
 					}
 				}
 			}
 		}
 
-		// Enters from the end of the incoming links if the ring is free
+		// Enters the outer lane from the end of the incoming links if it is free
 		for (var i = 0; i < this.fanIn.length; i++)
 		{
 			var link = this.fanIn[i];
@@ -802,19 +1063,44 @@ window.TrafficSimulation = function(ui, listener)
 				var v = link.cells[k][link.out];
 				var next = (v != null) ? v.next() : null;
 
-				if (next != null && next.from == this && this.isFree(link.endCell, vmax))
+				if (next != null && next.from == this && this.isFree(0, link.endCell, vmax))
 				{
+					var e = link.endCell;
+					v.path = addCurvePoints((v.prevLink != null) ? [v.getPoint(true)] : [],
+						createCurveBetween(link.getPoint(k, link.out), getDirection(link.paths[k].points, false),
+						this.getPoint(0, e), this.getTangent(e)));
 					link.pop(k);
-					ring[link.endCell] = v;
+					this.rings[0][e] = v;
 					v.link = null;
 					v.ring = this;
-					v.cell = link.endCell;
+					v.ringLane = 0;
+					v.cell = e;
 					v.v = 0;
 					v.wait = 0;
 					this.vehicles++;
 				}
 			}
 		}
+	};
+
+	/**
+	 * Returns the points of the way of the given car in this step around the
+	 * ring from its previous cell to its exit and on a curve to the first
+	 * cell of the given lane of the given next link.
+	 */
+	Roundabout.prototype.getExitPath = function(v, next, lane)
+	{
+		var n = this.size;
+		var d = (v.prevRing == this) ? (v.cell - v.prevCell + n) % n : 0;
+		var pts = [];
+
+		for (var i = 0; i < d; i++)
+		{
+			pts.push(this.getPoint(0, v.prevCell + i, (i == 0) ? this.radii[v.prevRingLane] : null));
+		}
+
+		return addCurvePoints(pts, createCurveBetween(this.getPoint(0, v.cell), this.getTangent(v.cell),
+			next.getPoint(lane, 0), getDirection(next.paths[lane].points, true)));
 	};
 
 	/**
@@ -831,7 +1117,9 @@ window.TrafficSimulation = function(ui, listener)
 		this.ring = null;
 		this.transit = null;
 		this.curve = null;
+		this.path = null;
 		this.lane = 0;
+		this.ringLane = 0;
 		this.cell = 0;
 		this.v = 0;
 		this.wait = 0;
@@ -840,6 +1128,7 @@ window.TrafficSimulation = function(ui, listener)
 		this.prevRing = null;
 		this.prevTransit = null;
 		this.prevLane = 0;
+		this.prevRingLane = 0;
 		this.prevCell = 0;
 		this.prevProgress = 0;
 		this.color = carColors[id % carColors.length];
@@ -852,6 +1141,14 @@ window.TrafficSimulation = function(ui, listener)
 	Vehicle.prototype.next = function()
 	{
 		return (this.index < this.route.length) ? this.route[this.index] : null;
+	};
+
+	/**
+	 * Returns the link after the next one or null.
+	 */
+	Vehicle.prototype.after = function()
+	{
+		return (this.index + 1 < this.route.length) ? this.route[this.index + 1] : null;
 	};
 
 	/**
@@ -879,12 +1176,12 @@ window.TrafficSimulation = function(ui, listener)
 		var link = (prev) ? this.prevLink : this.link;
 		var cell = (prev) ? this.prevCell : this.cell;
 
-		return (ring != null) ? ring.getPoint(cell) :
+		return (ring != null) ? ring.getPoint((prev) ? this.prevRingLane : this.ringLane, cell) :
 			link.getPoint((prev) ? this.prevLane : this.lane, cell);
 	};
 
 	/**
-	 * Binary heap of junctions for the shortest paths.
+	 * Binary heap for the shortest paths.
 	 */
 	function Heap()
 	{
@@ -959,22 +1256,18 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Returns the links of the fastest route from start to end under the
-	 * current speeds or null if there is none (Dijkstra).
+	 * Returns the fastest route from the given first links to the given
+	 * junction under the current speeds with the turns that the lanes allow,
+	 * or null if there is none (Dijkstra on links).
 	 */
-	function getShortestPath(start, end)
+	function findRoute(firsts, end)
 	{
-		if (start == end)
-		{
-			return null;
-		}
-
 		// Reuses the arrays of the network, entries of other searches are stale
 		if (net.stamps == null)
 		{
-			net.dist = new Float64Array(net.crossings.length);
-			net.prev = new Array(net.crossings.length);
-			net.stamps = new Uint32Array(net.crossings.length);
+			net.dist = new Float64Array(net.links.length);
+			net.prev = new Array(net.links.length);
+			net.stamps = new Uint32Array(net.links.length);
 		}
 
 		var search = ++net.search;
@@ -982,50 +1275,78 @@ window.TrafficSimulation = function(ui, listener)
 		var prev = net.prev;
 		var stamps = net.stamps;
 		var heap = new Heap();
-		dist[start.index] = 0;
-		stamps[start.index] = search;
-		heap.push(0, start);
+
+		for (var i = 0; i < firsts.length; i++)
+		{
+			var k = firsts[i].index;
+			dist[k] = firsts[i].getCost();
+			prev[k] = null;
+			stamps[k] = search;
+			heap.push(dist[k], firsts[i]);
+		}
 
 		while (heap.keys.length > 0)
 		{
 			var top = heap.pop();
-			var c = top.value;
+			var link = top.value;
 
-			if (top.key > dist[c.index])
+			if (top.key > dist[link.index])
 			{
 				continue;
 			}
 
-			if (c == end)
+			if (link.to == end)
 			{
 				var path = [];
 
-				while (c != start)
+				while (link != null)
 				{
-					path.push(prev[c.index]);
-					c = prev[c.index].from;
+					path.push(link);
+					link = prev[link.index];
 				}
 
 				return path.reverse();
 			}
 
-			for (var j = 0; j < c.fanOut.length; j++)
-			{
-				var link = c.fanOut[j];
-				var d = top.key + link.getCost();
-				var k = link.to.index;
+			var next = link.to.fanOut;
 
-				if (stamps[k] != search || d < dist[k])
+			for (var j = 0; j < next.length; j++)
+			{
+				var k = next[j].index;
+				var d = top.key + next[j].getCost();
+
+				if (link.reach.has(next[j]) && (stamps[k] != search || d < dist[k]))
 				{
 					stamps[k] = search;
 					dist[k] = d;
 					prev[k] = link;
-					heap.push(d, link.to);
+					heap.push(d, next[j]);
 				}
 			}
 		}
 
 		return null;
+	};
+
+	/**
+	 * Returns the fastest route from the given junction to the other.
+	 */
+	function getRoute(start, end)
+	{
+		return (start == end) ? [] : findRoute(start.fanOut, end);
+	};
+
+	/**
+	 * Returns the fastest route after the given link to the given junction,
+	 * starting with a turn that the given lane allows or any lane if it is
+	 * null.
+	 */
+	function getRouteFrom(link, lane, end)
+	{
+		return (link.to == end) ? [] : findRoute(link.to.fanOut.filter(function(next)
+		{
+			return (lane != null) ? link.allows(lane, next) : link.reach.has(next);
+		}), end);
 	};
 
 	/**
@@ -1120,7 +1441,7 @@ window.TrafficSimulation = function(ui, listener)
 	function createEmptyNetwork()
 	{
 		return {crossings: [], links: [], crossingMap: new Map(), linkMap: new Map(),
-			origins: [], dests: [], cells: 0, roundabouts: 0, lights: 0, ends: [],
+			origins: [], dests: [], cells: 0, lanes: 0, roundabouts: 0, lights: 0, ends: [],
 			dist: null, prev: null, stamps: null, search: 0, tooLarge: false};
 	};
 
@@ -1155,7 +1476,7 @@ window.TrafficSimulation = function(ui, listener)
 				if (roads.isRoundabout(state.style))
 				{
 					junction = new Roundabout(state.cell.id, b.getCenterX(), b.getCenterY(),
-						roads.getRing(state.style, b.width, b.height).center);
+						roads.getRing(state.style, b.width, b.height).radii);
 					result.roundabouts++;
 				}
 				else
@@ -1252,30 +1573,32 @@ window.TrafficSimulation = function(ui, listener)
 			return (terminal != null && model.isVertex(terminal.cell)) ? getJunction(terminal) : null;
 		};
 
-		function addLink(key, from, to, points, offsets)
+		function addLink(key, from, to, points, lanes, lw)
 		{
-			var link = new Link(key, from, to, points, offsets);
+			var link = new Link(key, from, to, points, lanes, lw);
 
 			if (!isFinite(link.length))
 			{
 				return;
 			}
 
-			if (from.ring != null)
+			if (from.rings != null)
 			{
 				link.startCell = from.getCell(points[0]);
 			}
 
-			if (to.ring != null)
+			if (to.rings != null)
 			{
 				link.endCell = to.getCell(points[points.length - 1]);
 			}
 
+			link.index = result.links.length;
 			from.fanOut.push(link);
 			to.fanIn.push(link);
 			result.links.push(link);
 			result.linkMap.set(key, link);
 			result.cells += link.cells.length * (link.out + 1);
+			result.lanes += link.cells.length;
 		};
 
 		var edges = model.filterDescendants(function(cell)
@@ -1298,17 +1621,19 @@ window.TrafficSimulation = function(ui, listener)
 
 					if (from != null && to != null && from != to)
 					{
-						var dir = roads.getDirection(state.style);
-						var offsets = roads.getLaneOffsets(state.style);
+						var plan = roads.getLanePlan(state.style);
+						var lw = roads.getLaneWidth(state.style);
+						var forward = roads.getTravelLanes(plan, 1, lw);
+						var backward = roads.getTravelLanes(plan, -1, lw);
 
-						if (dir >= 0)
+						if (forward.length > 0)
 						{
-							addLink(state.cell.id + '>', from, to, pts, offsets);
+							addLink(state.cell.id + '>', from, to, pts, forward, lw);
 						}
 
-						if (dir <= 0)
+						if (backward.length > 0)
 						{
-							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), offsets);
+							addLink(state.cell.id + '<', to, from, pts.slice().reverse(), backward, lw);
 						}
 					}
 				}
@@ -1319,14 +1644,40 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var junction = result.crossings[i];
 
-			if (junction.ring != null)
+			if (junction.rings != null)
 			{
-				result.cells += junction.ring.length;
+				result.cells += junction.size * junction.rings.length;
 			}
 
+			// Turns to the next links and the next links that a lane allows
 			for (var j = 0; j < junction.fanIn.length; j++)
 			{
-				junction.capacity = Math.max(junction.capacity, junction.fanIn[j].cells.length);
+				var link = junction.fanIn[j];
+				junction.capacity = Math.max(junction.capacity, link.cells.length);
+				link.moves = new Map();
+				link.reach = new Set();
+
+				for (var k = 0; k < junction.fanOut.length; k++)
+				{
+					link.moves.set(junction.fanOut[k], getTurn(link, junction.fanOut[k]));
+				}
+
+				for (var k = 0; k < junction.fanOut.length; k++)
+				{
+					for (var l = 0; l < link.cells.length && !link.reach.has(junction.fanOut[k]); l++)
+					{
+						if (link.allows(l, junction.fanOut[k]))
+						{
+							link.reach.add(junction.fanOut[k]);
+						}
+					}
+				}
+
+				if (link.reach.size == 0)
+				{
+					link.open = true;
+					link.reach = new Set(junction.fanOut);
+				}
 			}
 		}
 
@@ -1384,7 +1735,7 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var start = net.origins[Math.floor(Math.random() * net.origins.length)];
 			var end = net.dests[Math.floor(Math.random() * net.dests.length)];
-			var route = getShortestPath(start, end);
+			var route = (start != end) ? getRoute(start, end) : null;
 
 			if (route != null)
 			{
@@ -1423,7 +1774,7 @@ window.TrafficSimulation = function(ui, listener)
 	{
 		if (v.ring != null)
 		{
-			v.ring.ring[v.cell] = null;
+			v.ring.rings[v.ringLane][v.cell] = null;
 			v.ring.vehicles--;
 		}
 		else
@@ -1444,12 +1795,13 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Gives the car the fastest route from the junction it drives to.
+	 * Gives the car the fastest route from the junction it drives to, with a
+	 * turn that its lane allows at the end of its link.
 	 */
 	function replan(v)
 	{
-		var from = v.getJunction();
-		var route = (from == v.dest) ? [] : getShortestPath(from, v.dest);
+		var route = (v.ring != null) ? getRoute(v.ring, v.dest) :
+			getRouteFrom(v.link, (v.cell == v.link.out) ? v.lane : null, v.dest);
 
 		if (route != null)
 		{
@@ -1474,9 +1826,11 @@ window.TrafficSimulation = function(ui, listener)
 			v.prevRing = v.ring;
 			v.prevTransit = v.transit;
 			v.prevLane = v.lane;
+			v.prevRingLane = v.ringLane;
 			v.prevCell = v.cell;
 			v.prevProgress = (v.transit != null) ? getProgress(v.transit) : 0;
 			v.curve = null;
+			v.path = null;
 		});
 
 		for (var i = 0; i < net.links.length; i++)
@@ -1553,29 +1907,32 @@ window.TrafficSimulation = function(ui, listener)
 			var prev = old.crossings[i];
 			var junction = net.crossingMap.get(prev.id);
 
-			if (junction != null && junction.ring == null)
+			if (junction != null && junction.rings == null)
 			{
 				junction.phase = (junction.phases != null) ? prev.phase % junction.phases.length : 0;
 				junction.counter = prev.counter;
 				junction.finger = prev.finger;
 			}
 
-			if (prev.ring != null)
+			for (var l = 0; prev.rings != null && l < prev.rings.length; l++)
 			{
-				for (var j = 0; j < prev.ring.length; j++)
+				for (var j = 0; j < prev.size; j++)
 				{
-					var v = prev.ring[j];
+					var v = prev.rings[l][j];
 
 					if (v != null)
 					{
-						var cell = (junction != null && junction.ring != null) ? findFreeCell(junction.ring,
-							Math.round(j * junction.ring.length / prev.ring.length) % junction.ring.length) : -1;
+						var lane = (junction != null && junction.rings != null) ?
+							Math.min(l, junction.rings.length - 1) : -1;
+						var cell = (lane >= 0) ? findFreeCell(junction.rings[lane],
+							Math.round(j * junction.size / prev.size) % junction.size) : -1;
 
 						if (cell >= 0)
 						{
-							junction.ring[cell] = v;
+							junction.rings[lane][cell] = v;
 							junction.vehicles++;
 							v.ring = junction;
+							v.ringLane = lane;
 							v.cell = cell;
 						}
 						else
@@ -1644,6 +2001,8 @@ window.TrafficSimulation = function(ui, listener)
 			v.index = 0;
 			v.prevLink = null;
 			v.prevRing = null;
+			v.prevTransit = null;
+			v.path = null;
 
 			// Removes cars that can no longer reach their destination
 			if (v.dest == null || (route == null && !replan(v)))
@@ -1663,7 +2022,7 @@ window.TrafficSimulation = function(ui, listener)
 			if (route == null || route.length == 0)
 			{
 				var start = net.crossingMap.get(v.route[0].from.id);
-				route = (start != null && dest != null) ? getShortestPath(start, dest) : null;
+				route = (start != null && dest != null && start != dest) ? getRoute(start, dest) : null;
 			}
 
 			if (route != null && dest != null)
@@ -1808,9 +2167,9 @@ window.TrafficSimulation = function(ui, listener)
 		var len = roads.getDistance(p0, p1);
 		var dx = (len > 0) ? (p1.x - p0.x) / len : 1;
 		var dy = (len > 0) ? (p1.y - p0.y) / len : 0;
-		var lw = (link.offsets.length > 1) ? Math.abs(link.offsets[1] - link.offsets[0]) : roads.laneWidth;
-		var a = link.offsets[0] - lw / 2;
-		var b = link.offsets[link.offsets.length - 1] + lw / 2;
+		var lw = link.laneWidth;
+		var a = Math.min.apply(null, link.offsets) - lw / 2;
+		var b = Math.max.apply(null, link.offsets) + lw / 2;
 		var x = p1.x - dx;
 		var y = p1.y - dy;
 
@@ -1845,11 +2204,12 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var link = net.links[i];
 			link.nodes = null;
-			link.hue = null;
+			link.hues = null;
 
 			if (config.density)
 			{
 				link.nodes = [];
+				link.hues = [];
 
 				for (var k = 0; k < link.paths.length; k++)
 				{
@@ -1863,6 +2223,7 @@ window.TrafficSimulation = function(ui, listener)
 
 					link.nodes.push(createNode('path', overlay.roads, {d: d.join(' '), fill: 'none',
 						'stroke-width': getSize(0.3, 2), 'stroke-linecap': 'round', 'stroke-opacity': '0.35'}));
+					link.hues.push(null);
 				}
 			}
 		}
@@ -1896,20 +2257,15 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			var link = net.links[i];
 
-			if (link.nodes != null)
+			// Green when free, red at half of the cells of a lane (stop and go)
+			for (var k = 0; link.nodes != null && k < link.nodes.length; k++)
 			{
-				// Green when free, red at half of the cells (stop and go)
-				var density = Math.min(1, 2 * link.vehicles / link.cells.length / (link.out + 1));
-				var hue = Math.round(120 * (1 - density));
+				var hue = Math.round(120 * (1 - Math.min(1, 2 * link.counts[k] / (link.out + 1))));
 
-				if (hue != link.hue)
+				if (hue != link.hues[k])
 				{
-					for (var k = 0; k < link.nodes.length; k++)
-					{
-						link.nodes[k].setAttribute('stroke', 'hsl(' + hue + ',85%,45%)');
-					}
-
-					link.hue = hue;
+					link.nodes[k].setAttribute('stroke', 'hsl(' + hue + ',85%,45%)');
+					link.hues[k] = hue;
 				}
 			}
 		}
@@ -1947,8 +2303,13 @@ window.TrafficSimulation = function(ui, listener)
 			var pt = v.getPoint(false);
 			var curve = (v.transit != null) ? v.transit.curve : v.curve;
 
+			// Into and out of roundabouts
+			if (alpha < 1 && v.path != null)
+			{
+				pt = getPathPoint(v.path.concat([pt]), alpha);
+			}
 			// Along the end of the last link and the curve through the crossing
-			if (alpha < 1 && curve != null && curve.length > 0 &&
+			else if (alpha < 1 && curve != null && curve.length > 0 &&
 				(v.prevTransit == null || v.prevTransit.curve == curve))
 			{
 				var link = (v.prevTransit == null) ? v.prevLink : null;
@@ -1964,8 +2325,10 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				if (v.prevRing != null && v.prevRing == v.ring)
 				{
-					var n = v.ring.ring.length;
-					pt = v.ring.getPoint(v.prevCell + ((v.cell - v.prevCell + n) % n) * alpha);
+					var n = v.ring.size;
+					var r = v.ring.radii[v.prevRingLane];
+					pt = v.ring.getPoint(0, v.prevCell + ((v.cell - v.prevCell + n) % n) * alpha,
+						r + (v.ring.radii[v.ringLane] - r) * alpha);
 				}
 				else if (v.prevLink != null && v.prevLink == v.link)
 				{
@@ -2028,7 +2391,8 @@ window.TrafficSimulation = function(ui, listener)
 
 			lines.push('Time: ' + formatTime(sim.time));
 			lines.push('Network: ' + junctions.join(', ') + ', ' +
-				formatCount(net.links.length, 'link') + ', ' + net.cells + ' cells');
+				formatCount(net.links.length, 'link') + ', ' + formatCount(net.lanes, 'lane') +
+				', ' + net.cells + ' cells');
 			lines.push('Cars: ' + sim.active.size + ' driving, ' + sim.queued + ' waiting to start');
 			lines.push('Density: ' + (100 * sim.active.size / net.cells).toFixed(1) + ' %');
 			lines.push('Arrived: ' + sim.arrived);
@@ -2120,6 +2484,7 @@ window.TrafficSimulation = function(ui, listener)
 			{
 				v.prevLink = null;
 				v.prevRing = null;
+				v.path = null;
 				v.prevTransit = v.transit;
 				v.prevProgress = (v.transit != null) ? getProgress(v.transit) : 0;
 				v.curve = null;

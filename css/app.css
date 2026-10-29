@@ -156,6 +156,43 @@ select, input[type="number"] {
 	color: var(--muted);
 }
 
+.lane-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 8px;
+}
+
+.lane {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.lane .name {
+	width: 12px;
+	font-size: 12px;
+	color: var(--muted);
+	text-align: right;
+}
+
+.lane select {
+	width: 118px;
+	padding: 2px 4px;
+}
+
+.lane label {
+	display: flex;
+	align-items: center;
+	font-size: 16px;
+	cursor: pointer;
+}
+
+.lane button {
+	margin-left: auto;
+	padding: 0 7px;
+}
+
 .help ul {
 	margin: 0;
 	padding-left: 18px;

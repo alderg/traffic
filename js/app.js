@@ -187,8 +187,16 @@
 		var cycle = document.getElementById('cycle');
 		var lanes = document.getElementById('lanes');
 		var direction = document.getElementById('direction');
+		var ringFields = document.getElementById('ring-fields');
+		var ringLanes = document.getElementById('ring-lanes');
+		var laneFields = document.getElementById('lane-fields');
+		var laneList = document.getElementById('lane-list');
+		var lanesHint = document.getElementById('lanes-hint');
+		var turnNames = {l: ['Left', '\u21b0'], s: ['Straight', '\u2191'], r: ['Right', '\u21b1']};
 		var junctions = [];
 		var edges = [];
+		var plan = null;
+		var spec = null;
 
 		function count(n, name)
 		{
@@ -205,6 +213,56 @@
 			if (cycle.textContent != text)
 			{
 				cycle.textContent = text;
+			}
+		};
+
+		/**
+		 * Shows a row for each lane of the given lanes with its direction, the
+		 * turns it allows and a button to remove it.
+		 */
+		function showLanes(lanePlan)
+		{
+			laneList.textContent = '';
+
+			for (var i = 0; i < lanePlan.length; i++)
+			{
+				var row = document.createElement('div');
+				row.className = 'lane';
+				var name = document.createElement('span');
+				name.className = 'name';
+				name.textContent = i + 1;
+				row.appendChild(name);
+
+				var dir = document.createElement('select');
+				dir.setAttribute('aria-label', 'Direction of lane ' + (i + 1));
+				dir.innerHTML = '<option value="1">\u2192 Forward</option><option value="-1">\u2190 Backward</option>';
+				dir.value = lanePlan[i].dir;
+				dir.dataset.lane = i;
+				row.appendChild(dir);
+
+				for (var t in turnNames)
+				{
+					var label = document.createElement('label');
+					label.title = turnNames[t][0];
+					var box = document.createElement('input');
+					box.type = 'checkbox';
+					box.checked = lanePlan[i].turns == null || lanePlan[i].turns.indexOf(t) >= 0;
+					box.dataset.lane = i;
+					box.dataset.turn = t;
+					box.setAttribute('aria-label', turnNames[t][0] + ' from lane ' + (i + 1));
+					label.appendChild(box);
+					label.appendChild(document.createTextNode(turnNames[t][1]));
+					row.appendChild(label);
+				}
+
+				var remove = document.createElement('button');
+				remove.type = 'button';
+				remove.textContent = '\u00d7';
+				remove.title = 'Remove lane ' + (i + 1);
+				remove.dataset.lane = i;
+				remove.disabled = lanePlan.length == 1;
+				row.appendChild(remove);
+				laneList.appendChild(row);
 			}
 		};
 
@@ -247,6 +305,8 @@
 			{
 				type.value = roads.getJunctionType(junctions[0]);
 				lightFields.hidden = type.value != 'light';
+				ringFields.hidden = type.value != 'roundabout';
+				ringLanes.value = roads.getRingLanes(junctions[0]);
 
 				if (document.activeElement != green)
 				{
@@ -259,8 +319,31 @@
 			if (edges.length > 0)
 			{
 				var road = roads.getRoad(edges[0]);
-				lanes.value = road.lanes;
+				lanes.value = Math.min(4, road.lanes);
 				direction.value = road.dir;
+				plan = road.plan;
+				laneFields.hidden = edges.length != 1;
+				lanesHint.hidden = edges.length == 1;
+
+				// Keeps the rows while their lanes do not change
+				var current = win.TrafficRoads.getLaneSpec(plan);
+
+				if (current != spec)
+				{
+					spec = current;
+					showLanes(plan);
+				}
+			}
+		};
+
+		/**
+		 * Sets the lanes of the selected road.
+		 */
+		function setLanes(lanePlan)
+		{
+			if (edges.length == 1)
+			{
+				roads.setLanePlan(edges[0], lanePlan);
 			}
 		};
 
@@ -292,6 +375,65 @@
 		direction.addEventListener('change', function()
 		{
 			roads.setRoads(edges, null, parseInt(direction.value));
+		});
+
+		ringLanes.addEventListener('change', function()
+		{
+			roads.setRingLanes(junctions, parseInt(ringLanes.value));
+		});
+
+		laneList.addEventListener('change', function(evt)
+		{
+			var i = parseInt(evt.target.dataset.lane);
+			var lanePlan = plan.map(function(lane)
+			{
+				return {dir: lane.dir, turns: lane.turns};
+			});
+
+			if (evt.target.tagName == 'SELECT')
+			{
+				lanePlan[i].dir = parseInt(evt.target.value);
+			}
+			else
+			{
+				var boxes = evt.target.closest('.lane').querySelectorAll('input');
+				var turns = '';
+
+				for (var j = 0; j < boxes.length; j++)
+				{
+					turns += (boxes[j].checked) ? boxes[j].dataset.turn : '';
+				}
+
+				// Each lane allows at least one turn
+				if (turns.length == 0)
+				{
+					evt.target.checked = true;
+
+					return;
+				}
+
+				lanePlan[i].turns = (turns.length == 3) ? null : turns;
+			}
+
+			setLanes(lanePlan);
+		});
+
+		laneList.addEventListener('click', function(evt)
+		{
+			if (evt.target.tagName == 'BUTTON' && plan.length > 1)
+			{
+				var lanePlan = plan.slice();
+				lanePlan.splice(parseInt(evt.target.dataset.lane), 1);
+				setLanes(lanePlan);
+			}
+		});
+
+		document.getElementById('add-lane').addEventListener('click', function()
+		{
+			if (plan != null && plan.length < 8)
+			{
+				setLanes(plan.concat([{dir: plan[plan.length - 1].dir, turns: null}]));
+			}
 		});
 
 		show();
