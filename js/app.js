@@ -2112,7 +2112,20 @@
 				label = p.name;
 				endTask(t);
 				choose(p, roads, s);
-				load(false, fail, trips);
+
+				// Links load no more than Load would, unless the town is cached
+				return ((tooLarge) ? osm.findCached(p, level.value, s) : Promise.resolve(true)).then(function(entry)
+				{
+					if (entry != null)
+					{
+						load(false, fail, trips);
+					}
+					else
+					{
+						fail(new Error('it is too large to load with ' + osm.levelNames[level.value].toLowerCase() +
+							'. Choose main roads or a section.'));
+					}
+				});
 			})['catch'](function(e)
 			{
 				if (!t.signal.aborted)
