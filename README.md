@@ -473,7 +473,10 @@ Under Network, Load your town loads the roads of a town or city from
   Cancel button in the panel and in a card over the diagram, like a link
   (see below), builds the network and opens it, and sets Cars for its
   size (1 per 1.5 km of lanes, 100 to 1,500). Copy Link copies a link to
-  the town, which opens it at start.
+  the town, which opens it at start. The town stays in the URL until an
+  example or another town is opened, or a file in draw.io (File > Open,
+  New), which also cancels a town that is still loading, so that a reload
+  does not open the town again.
 - Loaded towns are kept in the browser (IndexedDB) with the date and the
   query, the 12 last, so that a reload or a link opens them without
   loading again, also a section of a loaded town. Load again loads the

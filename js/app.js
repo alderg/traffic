@@ -48,6 +48,7 @@
 	var updateTrips = null;
 	var statsShown = null;
 	var town = null;
+	var openingFile = false;
 	var map = null;
 	var legendBar = null;
 	var legendStops = null;
@@ -389,6 +390,19 @@
 			initMapControl();
 			initSelection();
 			town = initTown();
+
+			// Files that draw.io opens itself, eg. with File > Open or New,
+			// replace the town in the URL and in Copy Link, so that a reload
+			// does not open the town again
+			ui.editor.addListener('fileLoaded', function()
+			{
+				if (!openingFile)
+				{
+					town.cancel();
+					town.clear();
+				}
+			});
+
 			sim.setDebug(debug);
 			sim.start();
 
@@ -2192,7 +2206,18 @@
 		{
 			drawOutsideDocument(function()
 			{
-				ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
+				// Towns and examples set the URL themselves
+				openingFile = true;
+
+				try
+				{
+					ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
+				}
+				finally
+				{
+					openingFile = false;
+				}
+
 				fitDiagram();
 			});
 
