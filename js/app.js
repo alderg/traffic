@@ -1144,7 +1144,6 @@
 		var suggestTimer = null;
 		var view = null;
 		var loaded = null;
-		var pendingTrips = null;
 		var estimateId = 0;
 
 		function format(n)
@@ -1790,9 +1789,10 @@
 
 		/**
 		 * Loads, builds and opens the network of the chosen place, level and
-		 * section, from the cache unless fresh is true.
+		 * section, from the cache unless fresh is true, with the given trips
+		 * of a link, if any.
 		 */
-		function load(fresh, onError)
+		function load(fresh, onError, trips)
 		{
 			var p = place;
 			var l = level.value;
@@ -1876,13 +1876,12 @@
 						updateLink();
 
 						// The trips of a link go with the town
-						if (pendingTrips != null)
+						if (trips != null)
 						{
-							sim.setTrips(pendingTrips.mode, pendingTrips.through);
+							sim.setTrips(trips.mode, trips.through);
 						}
 
-						setUrl(pendingTrips);
-						pendingTrips = null;
+						setUrl(trips);
 
 						// Enough cars to see traffic on the roads
 						var cars = Math.max(100, Math.min(1500, Math.round(st.laneKm / 15) * 10));
@@ -2078,7 +2077,7 @@
 			var s = osm.parseSection(params.get('circle'), params.get('bbox'));
 			var label = name || key;
 			var through = parseFloat(params.get('through'));
-			pendingTrips = (sim.getTripModes().modes.some(function(m)
+			var trips = (sim.getTripModes().modes.some(function(m)
 			{
 				return m.value == params.get('trips');
 			})) ? {mode: params.get('trips'), through: (through >= 0 && through <= 100) ? through / 100 : 0.25} : null;
@@ -2113,7 +2112,7 @@
 				label = p.name;
 				endTask(t);
 				choose(p, roads, s);
-				load(false, fail);
+				load(false, fail, trips);
 			})['catch'](function(e)
 			{
 				if (!t.signal.aborted)
