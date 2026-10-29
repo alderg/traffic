@@ -1560,7 +1560,7 @@
 			var b = osm.getBounds(place, null);
 			var zf = Math.log(Math.min((w - 16) / (mercatorX(b[3], 0) - mercatorX(b[1], 0)),
 				(h - 16) / (mercatorY(b[0], 0) - mercatorY(b[2], 0)))) / Math.LN2;
-			var z = Math.max(1, Math.min(18, Math.ceil(zf)));
+			var z = Math.max(Math.min(1, tiles.maxZoom), Math.min(18, tiles.maxZoom, Math.ceil(zf)));
 			var k = Math.pow(2, zf - z);
 			var cx = (mercatorX(b[1], z) + mercatorX(b[3], z)) / 2;
 			var cy = (mercatorY(b[0], z) + mercatorY(b[2], z)) / 2;

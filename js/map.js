@@ -38,7 +38,7 @@ window.TrafficMap = function(ui, options)
 	var copyrightUrl = 'https://www.openstreetmap.org/copyright';
 	var licenseUrl = 'https://opendatacommons.org/licenses/odbl/';
 	var tileUrl = options.tileUrl || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-	var maxZoom = options.maxZoom || 19;
+	var maxZoom = (options.maxZoom != null) ? options.maxZoom : 19;
 	var size = 256;
 	var world = 2 * Math.PI * 6378137;
 	var darkFilter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
