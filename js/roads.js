@@ -54,11 +54,11 @@ window.TrafficRoads = function(ui)
 		'<circle cx="5" cy="11" r="2.4" fill="#a88a2a"/>' +
 		'<circle cx="5" cy="17" r="2.4" fill="#2f8046"/></svg>');
 
-	var crossingStyle = 'ellipse;aspect=fixed;html=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
-	var lightStyle = 'shape=label;rounded=1;arcSize=50;aspect=fixed;perimeter=ellipsePerimeter;html=1;' +
+	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;html=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
+	var lightStyle = 'shape=label;rounded=1;arcSize=50;aspect=fixed;resizeCentered=1;perimeter=ellipsePerimeter;html=1;' +
 		'strokeColor=none;fillColor=' + roads.asphalt + ';image=' + lightImage + ';imageWidth=7;imageHeight=15;' +
 		'imageAlign=center;imageVerticalAlign=middle;trafficLight=10;';
-	var roundaboutStyle = 'shape=roundabout;aspect=fixed;perimeter=ellipsePerimeter;html=1;' +
+	var roundaboutStyle = 'shape=roundabout;aspect=fixed;resizeCentered=1;perimeter=ellipsePerimeter;html=1;' +
 		'strokeColor=none;fillColor=' + roads.asphalt + ';islandColor=' + roads.island + ';';
 	var roadStyle = 'shape=road;html=1;strokeColor=' + roads.asphalt + ';fillColor=' + roads.marking + ';';
 

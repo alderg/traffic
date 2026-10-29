@@ -96,7 +96,7 @@ window.TrafficSimulation = function(ui, listener)
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
 		trucks: 0.2, fast: 0.1};
 
-	var crossingStyle = 'ellipse;aspect=fixed;strokeColor=none;fillColor=' + roads.asphalt + ';';
+	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
 	var twoWayStyle = 'shape=road;endArrow=none;startArrow=none;strokeWidth=14;';
 

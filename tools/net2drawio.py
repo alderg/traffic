@@ -16,7 +16,7 @@ import sys
 from xml.sax.saxutils import quoteattr
 
 SIZE = 16
-CROSSING = 'ellipse;aspect=fixed;strokeColor=none;fillColor=light-dark(#5f6368,#5f6368);'
+CROSSING = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=light-dark(#5f6368,#5f6368);'
 ONE_WAY = 'shape=road;endArrow=block;strokeWidth=7;'
 TWO_WAY = 'shape=road;endArrow=none;startArrow=none;strokeWidth=14;'
 
