@@ -533,8 +533,31 @@
 	};
 
 	/**
+	 * Fits the whole diagram into the window. Diagrams that need less than
+	 * the smallest zoom step of draw.io, which rounds to 1 %, get the exact
+	 * scale and are centered.
+	 */
+	function fitDiagram()
+	{
+		var graph = ui.editor.graph;
+		var c = graph.container;
+		ui.fitDiagramToWindow(null, null, false, true);
+		var b = graph.getGraphBounds();
+
+		if (b.width > c.clientWidth || b.height > c.clientHeight)
+		{
+			graph.view.setScale(graph.view.scale * Math.min((c.clientWidth - 20) / b.width,
+				(c.clientHeight - 20) / b.height));
+			b = graph.getGraphBounds();
+			c.scrollLeft = b.x + (b.width - c.clientWidth) / 2;
+			c.scrollTop = b.y + (b.height - c.clientHeight) / 2;
+		}
+	};
+
+	/**
 	 * Opens the given file in the editor, also in the web app, where
-	 * openLocalFile opens files in a new window if the diagram is not empty.
+	 * openLocalFile opens files in a new window if the diagram is not empty,
+	 * and fits the whole diagram into the window.
 	 */
 	function openFile(xml, name)
 	{
@@ -544,6 +567,7 @@
 		var fn = function()
 		{
 			ui.fileLoaded(new win.LocalFile(ui, xml, name, true));
+			fitDiagram();
 		};
 
 		if (file != null && file.isModified())
