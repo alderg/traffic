@@ -288,7 +288,7 @@ var TrafficOsm = (function()
 
 		return {key: r.osm_type + '/' + r.osm_id, name: r.name || r.display_name.split(',')[0],
 			label: r.display_name, kind: r.addresstype || r.type, lat: parseFloat(r.lat),
-			lon: parseFloat(r.lon), population: parseInt(tags.population) || null,
+			lon: parseFloat(r.lon), population: parsePopulation(tags.population),
 			bbox: (b != null) ? [parseFloat(b[0]), parseFloat(b[2]), parseFloat(b[1]), parseFloat(b[3])] : null};
 	};
 
@@ -1199,6 +1199,17 @@ var TrafficOsm = (function()
 	function parseCount(value)
 	{
 		var n = (value != null) ? parseInt(String(value).split(';')[0]) : NaN;
+
+		return (isNaN(n) || n <= 0) ? null : n;
+	};
+
+	/**
+	 * Returns the population of the given tag, also with separators of
+	 * thousands such as 3.769.495, 1,234,567 or 1 234 567, or null.
+	 */
+	function parsePopulation(value)
+	{
+		var n = (value != null) ? parseInt(String(value).split(';')[0].replace(/[\s.,'\u2019]/g, '')) : NaN;
 
 		return (isNaN(n) || n <= 0) ? null : n;
 	};
@@ -2497,7 +2508,8 @@ var TrafficOsm = (function()
 		attribution: attribution, copyrightUrl: copyrightUrl, search: search, suggest: suggest,
 		lookup: lookup, estimate: estimate, load: load, findCached: findCached, build: build, compact: compact, getBounds: getBounds,
 		getArea: getArea, getQuery: getQuery, getSectionText: getSectionText, parseSection: parseSection,
-		createProjection: createProjection, getAttributes: getAttributes, parseSpeed: parseSpeed};
+		createProjection: createProjection, getAttributes: getAttributes, parseSpeed: parseSpeed,
+		parsePopulation: parsePopulation};
 })();
 
 if (typeof module == 'object' && module.exports != null)

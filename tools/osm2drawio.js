@@ -43,7 +43,7 @@ function main(args)
 	var g = r.geojson || {};
 	var b = r.boundingbox;
 	var place = {key: r.osm_type + '/' + r.osm_id, name: r.name, kind: r.addresstype, lat: parseFloat(r.lat),
-		lon: parseFloat(r.lon), population: parseInt((r.extratags || {}).population) || null,
+		lon: parseFloat(r.lon), population: osm.parsePopulation((r.extratags || {}).population),
 		bbox: [parseFloat(b[0]), parseFloat(b[2]), parseFloat(b[1]), parseFloat(b[3])],
 		rings: (g.type == 'Polygon') ? g.coordinates : ((g.type == 'MultiPolygon') ?
 			[].concat.apply([], g.coordinates) : null)};
