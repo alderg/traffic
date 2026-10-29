@@ -55,6 +55,15 @@ see [Loading Your Town](#loading-your-town).
   their road or, with a line, their junction where they overlap no road,
   junction, traffic light or other label, and are hidden when more than
   400 roads and junctions are in view.
+- Show vehicles in the panel, on by default, paints the vehicles. Off, the
+  simulation runs on exactly as before, with its statistics, counts,
+  density and traffic lights, but no vehicle is painted, which saves the
+  time of painting them (Zurich with all streets and 1,000 cars at 10x:
+  60 instead of 40 frames per second with the map background, 24 instead
+  of 13 without, in Chrome without a GPU), clicks go to the roads under
+  them, and a vehicle that is followed is let go. On again, the vehicles
+  show where they are now. Like the other display settings, it is not kept
+  when the page reloads.
 - Click a vehicle to follow it: a ring and a label with its type and speed
   drive along with it, its route is colored from its start A to its
   destination B, and the Vehicle section of the panel shows its data live:

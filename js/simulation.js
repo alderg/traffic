@@ -54,10 +54,11 @@
  * aborts (Link.prototype.stepPasser). Vehicles are painted from above with
  * the shape of their type along their lane, turned in their direction
  * through curves, crossings, roundabouts and lane changes, and in the color
- * of their speed from blue to red. They, traffic lights and the density of the lanes are
- * painted into the overlay pane, and optionally labels with the cars that
- * are on each road and junction in view, on their way there, and that
- * entered and left. Each link and junction counts its cars for the
+ * of their speed from blue to red, unless vehicles in the config is off,
+ * which skips painting them. They, traffic lights and the density of the
+ * lanes are painted into the overlay pane, and optionally labels with the
+ * cars that are on each road and junction in view, on their way there, and
+ * that entered and left. Each link and junction counts its cars for the
  * statistics of the selection (getStats). A click on a car selects it: its
  * route is colored from its start A to its destination B, a ring and a label
  * follow it, and getVehicle returns its data. The overlay has no pointer
@@ -157,7 +158,7 @@ window.TrafficSimulation = function(ui, listener)
 	var laneChangeYaw = 25;
 	var lampColors = [['#ff3b30', '#4a1512'], ['#ffcc00', '#4a3d0d'], ['#34c759', '#123d1f']];
 	var config = {cars: 60, speed: 10, vmax: 5, noise: 0.25, reroute: true, density: true, labels: false, lifetime: 300,
-		trucks: 0.2, fast: 0.1, passEitherSide: false};
+		trucks: 0.2, fast: 0.1, passEitherSide: false, vehicles: true};
 
 	var crossingStyle = 'ellipse;aspect=fixed;resizeCentered=1;strokeColor=none;fillColor=' + roads.asphalt + ';';
 	var oneWayStyle = 'shape=road;endArrow=block;strokeWidth=7;';
@@ -3234,6 +3235,7 @@ window.TrafficSimulation = function(ui, listener)
 			route: createNode('g', root, {}), bars: createNode('g', root, {}),
 			cars: createNode('g', root, {stroke: 'rgba(0,0,0,0.6)', 'stroke-linejoin': 'round', 'fill-rule': 'evenodd'}),
 			heads: createNode('g', root, {}), labels: createNode('g', root, {}), focus: createNode('g', root, {})};
+		overlay.cars.style.display = (config.vehicles) ? '' : 'none';
 		outlines = {scale: 0};
 		graph.view.getOverlayPane().appendChild(root);
 		updateTransform();
@@ -3838,6 +3840,12 @@ window.TrafficSimulation = function(ui, listener)
 	 */
 	function paintCars(alpha)
 	{
+		// Hidden vehicles are painted where they are when they are shown
+		if (!config.vehicles)
+		{
+			return;
+		}
+
 		var k = getVehicleScale();
 		var colors = getSpeedColors();
 		var top = colors.length - 1;
@@ -4916,7 +4924,8 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Sets the given option. Speed changes restart the steps and the
-	 * interpolation, Show density repaints the roads.
+	 * interpolation, Show density repaints the roads, and hiding the
+	 * vehicles stops painting them, also the selected one.
 	 */
 	function setOption(key, value)
 	{
@@ -4938,6 +4947,18 @@ window.TrafficSimulation = function(ui, listener)
 		{
 			labelsDirty = true;
 			clearLabels();
+			schedule();
+		}
+		else if (key == 'vehicles' && overlay != null)
+		{
+			// Hiding the vehicles ends following the selected one
+			overlay.cars.style.display = (value) ? '' : 'none';
+
+			if (!value)
+			{
+				selectVehicle(null);
+			}
+
 			schedule();
 		}
 	};
@@ -5010,14 +5031,15 @@ window.TrafficSimulation = function(ui, listener)
 
 	/**
 	 * Returns the car that is painted nearest to the given point in model
-	 * coordinates within a few pixels, or null.
+	 * coordinates within a few pixels, or null, also while vehicles are
+	 * hidden.
 	 */
 	function findVehicle(pt)
 	{
 		var best = Math.pow(Math.max(vehicleShapes.truck.length / 2 * getVehicleScale(), 8 / graph.view.scale), 2);
 		var result = null;
 
-		if (sim != null && overlay != null)
+		if (sim != null && overlay != null && config.vehicles)
 		{
 			sim.active.forEach(function(v)
 			{
@@ -5056,9 +5078,10 @@ window.TrafficSimulation = function(ui, listener)
 	};
 
 	/**
-	 * Selects the given car, or none if it is null: highlights it with a
-	 * label that drives along, colors its route from its start A to its
-	 * destination B and clears the selection of the diagram.
+	 * Selects the given car, or none if it is null or vehicles are hidden:
+	 * highlights it with a label that drives along, colors its route from
+	 * its start A to its destination B and clears the selection of the
+	 * diagram.
 	 */
 	function selectVehicle(v)
 	{
@@ -5070,7 +5093,7 @@ window.TrafficSimulation = function(ui, listener)
 
 		focus = null;
 
-		if (v != null && overlay != null)
+		if (v != null && overlay != null && config.vehicles)
 		{
 			var stroke = 'light-dark(#1a73e8,#8ab4f8)';
 			focus = {v: v, status: null, end: 0, key: null, net: null, dest: v.dest};
