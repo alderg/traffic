@@ -60,11 +60,13 @@
 	var legendStops = null;
 	var faviconRunning = false;
 	var tiles = getTiles();
-	// Keys of the speed unit, the driving side and the regions chosen by hand
-	// for towns in the local storage, and the region of the towns that open
-	// (see initRegion)
+	// Keys of the speed unit, the driving side, the option to set the region
+	// from the country of towns and the regions chosen by hand for towns in
+	// the local storage, and the region of the towns that open (see
+	// initRegion)
 	var unitsKey = 'traffic-units';
 	var sideKey = 'traffic-side';
+	var townRegionKey = 'traffic-town-region';
 	var townRegionsKey = 'traffic-town-regions';
 	var maxTownRegions = 100;
 	var townRegion = null;
@@ -430,9 +432,11 @@
 	/**
 	 * Shows the speed unit, the driving side and the region that sets both
 	 * in the panel, changes them in the simulation and keeps them, and calls
-	 * updateSpeeds with a new unit. A town that opens sets the region of its
-	 * country (townRegion.open), unless one was chosen by hand while it was
-	 * open, which is kept for it.
+	 * updateSpeeds with a new unit. With Set region from the town's country,
+	 * on by default, a town that opens sets the region of its country
+	 * (townRegion.open), unless one was chosen by hand while it was open,
+	 * which is kept for it, and turning it on sets that of the open town.
+	 * Off, towns leave the region as it is.
 	 */
 	function initRegion(updateSpeeds)
 	{
@@ -442,7 +446,9 @@
 		var units = document.getElementById('units');
 		var side = document.getElementById('side');
 		var hint = document.getElementById('region-hint');
+		var fromTown = document.getElementById('town-region');
 		var currentTown = null;
+		fromTown.checked = readSetting(townRegionKey) != 'off';
 		addOptions(region, regions.map(function(r) { return r.name; }),
 			regions.map(function(r) { return r.label; }));
 		addOptions(units, TrafficUnits.units, TrafficUnits.units.map(TrafficUnits.getLabel));
@@ -522,7 +528,7 @@
 		{
 			show();
 
-			if (currentTown != null)
+			if (currentTown != null && fromTown.checked)
 			{
 				var choices = readChoices();
 				delete choices[currentTown.key];
@@ -559,28 +565,59 @@
 			keepChoice();
 		});
 
+		/**
+		 * Sets the region of the given place of a town: the one chosen by
+		 * hand for it, else that of its country, else it keeps the region,
+		 * with next for the town that is about to open.
+		 */
+		function setTownRegion(place, next)
+		{
+			var code = TrafficUnits.getTerritory(place.countryCode, place.subdivisions);
+			var choice = getRegion(readChoices()[place.key]);
+			var r = choice || TrafficUnits.getRegion(code);
+
+			if (r != null)
+			{
+				setUnits(r.units);
+				setLeftHand(r.leftHand, next);
+				show();
+			}
+
+			showHint((choice != null) ? 'As you chose for ' + place.name + '.' : ((r != null) ?
+				'From the country of ' + place.name + ': ' + getCountryName(code, place.country) + '.' : null));
+		};
+
+		fromTown.addEventListener('change', function()
+		{
+			writeSetting(townRegionKey, (fromTown.checked) ? 'on' : 'off');
+
+			if (fromTown.checked && currentTown != null)
+			{
+				setTownRegion(currentTown.place, false);
+			}
+			else
+			{
+				showHint(null);
+			}
+		});
+
 		townRegion = {
 			/**
 			 * Sets the region of the given place of a town that is about to
-			 * open: the one chosen by hand for it, else that of its country,
-			 * else it keeps the region.
+			 * open, with Set region from the town's country.
 			 */
 			open: function(place)
 			{
-				var code = TrafficUnits.getTerritory(place.countryCode, place.subdivisions);
-				var choice = getRegion(readChoices()[place.key]);
-				var r = choice || TrafficUnits.getRegion(code);
-				currentTown = {key: place.key, name: place.name};
+				currentTown = {key: place.key, name: place.name, place: place};
 
-				if (r != null)
+				if (fromTown.checked)
 				{
-					setUnits(r.units);
-					setLeftHand(r.leftHand, true);
-					show();
+					setTownRegion(place, true);
 				}
-
-				showHint((choice != null) ? 'As you chose for ' + place.name + '.' : ((r != null) ?
-					'From the country of ' + place.name + ': ' + getCountryName(code, place.country) + '.' : null));
+				else
+				{
+					showHint(null);
+				}
 			},
 
 			/**

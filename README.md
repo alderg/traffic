@@ -429,11 +429,13 @@ both sides.
   United States (mph, right), United Kingdom (mph, left) and Australia,
   Japan, India (km/h, left). As each pair has its region, it always shows
   the region of the current speed unit and driving side.
-- A town that loads sets the region of its country, eg. United Kingdom for
-  a town in Britain, Australia, Japan, India for one in Ireland, New
-  Zealand or South Africa, United States for the United States and Europe
-  and most countries for Switzerland, and a hint below says so ("From the
-  country of Zug: Switzerland."). The country is the ISO 3166-1 code that
+- With Set region from the town's country, next to Load in the Network
+  section and on by default, a town that loads sets the region of its
+  country, eg. United Kingdom for a town in Britain, Australia, Japan,
+  India for one in Ireland, New Zealand or South Africa, United States for
+  the United States and Europe and most countries for Switzerland, and a
+  hint below the region says so ("From the country of Zug:
+  Switzerland."). The country is the ISO 3166-1 code that
   Nominatim gives in the address of the town (`addressdetails=1`), with the
   ISO 3166-2 codes of its subdivisions for territories that drive
   otherwise than their country: Hong Kong and Macau (CN-HK, CN-MO) on the
@@ -447,7 +449,11 @@ both sides.
   localStorage, by the OpenStreetMap key of the town, for the last 100
   towns). The region is set before the town opens, so that it is painted
   and built on its side at once, and stays when an example opens next,
-  which forgets the town.
+  which forgets the town. Turned on while a town is open, the option sets
+  the region of that town at once. Off, towns leave the region, the speed
+  unit and the driving side as they are, and choices by hand are not kept
+  for them. The browser keeps the option across reloads
+  (`traffic-town-region` in localStorage).
 
 ## Trips
 
@@ -1076,8 +1082,10 @@ then writes its own debug messages and has a Develop menu.
   drive counterclockwise with right-hand traffic, and then towns in the
   United Kingdom and Australia, which it serves itself instead of
   Nominatim and Overpass: they get their region, cars keep left there, a
-  region chosen by hand is kept for the town, and a place cached without
-  its country is looked up again. It runs in headless Chrome like the smoke
+  region chosen by hand is kept for the town, a place cached without its
+  country is looked up again, and with Set region from the town's country
+  off, a town in the United Kingdom keeps the region United States, cars
+  keep right there, and the option stays off after a reload. It runs in headless Chrome like the smoke
   test:
 
   ```bash

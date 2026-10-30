@@ -12,7 +12,9 @@
  * Kingdom and Australia, which Nominatim and Overpass of this test answer,
  * and checks that they get the region of their country, that cars keep
  * left there, that a region chosen by hand for a town is kept when it opens
- * again and that a place cached without its country is looked up again.
+ * again and that a place cached without its country is looked up again,
+ * and with Set region from the town's country off, that towns keep the
+ * region and that the option is kept across reloads.
  *
  * Usage: node tools/driving-side-test.js http://localhost:8000/index.html
  *
@@ -484,6 +486,7 @@ async function main()
 		page = await context.newPage();
 		watchErrors(page, errors);
 		await openTown(page, towns[0]);
+		assert.strictEqual(await page.isChecked('#town-region'), true, 'Option off by default');
 		assert.strictEqual(await page.inputValue('#region'), 'uk');
 		assert.strictEqual(await page.inputValue('#units'), 'mph');
 		assert.strictEqual(await page.inputValue('#side'), 'left');
@@ -510,6 +513,31 @@ async function main()
 		assert.strictEqual(lookups[towns[1].key], 1, 'Testville was not looked up again');
 		console.log('Town in Australia: km/h and left-hand traffic');
 		await checkSide(page, 'left', null);
+
+		// Off, towns leave the region, the speed unit and the driving side,
+		// and choices by hand are not kept for them
+		await page.uncheck('#town-region');
+		assert.ok(await page.isHidden('#region-hint'), 'Hint shown with the option off');
+		await page.selectOption('#region', 'us');
+		assert.ok(await page.isHidden('#region-hint'), 'Choice kept with the option off');
+		await openTown(page, towns[0]);
+		assert.strictEqual(await page.isChecked('#town-region'), false, 'Option not kept after a reload');
+		assert.strictEqual(await page.inputValue('#region'), 'us');
+		assert.strictEqual(await page.inputValue('#units'), 'mph');
+		assert.strictEqual(await page.inputValue('#side'), 'right');
+		assert.ok(await page.isHidden('#region-hint'), 'Hint shown with the option off');
+		console.log('Option off: the town in the United Kingdom keeps the region United States');
+		await checkSide(page, 'right', null);
+
+		// On again, it sets the region of the open town at once
+		await page.check('#town-region');
+		assert.strictEqual(await page.inputValue('#region'), 'world');
+		assert.strictEqual(await page.textContent('#region-hint'), 'As you chose for Testbury.');
+		await openTown(page, towns[1]);
+		assert.strictEqual(await page.isChecked('#town-region'), true, 'Option not kept after a reload');
+		assert.strictEqual(await page.inputValue('#region'), 'au');
+		assert.strictEqual(await page.textContent('#region-hint'), 'From the country of Testville: Australia.');
+		console.log('Option on again: towns get their region');
 
 		// Examples keep the region and forget the town
 		await page.selectOption('#example', 'town');
