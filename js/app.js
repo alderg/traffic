@@ -60,14 +60,14 @@
 	var legendStops = null;
 	var faviconRunning = false;
 	var tiles = getTiles();
-	// Keys of the speed unit and the driving side in the local storage, and
-	// the regions that set both
+	// Keys of the speed unit, the driving side and the regions chosen by hand
+	// for towns in the local storage, and the region of the towns that open
+	// (see initRegion)
 	var unitsKey = 'traffic-units';
 	var sideKey = 'traffic-side';
-	var regions = [{name: 'world', label: 'Europe and most countries', units: 'kmh', leftHand: false},
-		{name: 'us', label: 'United States', units: 'mph', leftHand: false},
-		{name: 'uk', label: 'United Kingdom', units: 'mph', leftHand: true},
-		{name: 'au', label: 'Australia, Japan, India', units: 'kmh', leftHand: true}];
+	var townRegionsKey = 'traffic-town-regions';
+	var maxTownRegions = 100;
+	var townRegion = null;
 	var vehicleSection = document.getElementById('vehicle');
 	var centerHint = document.getElementById('center-hint');
 	var carsHint = document.getElementById('cars-hint');
@@ -430,18 +430,31 @@
 	/**
 	 * Shows the speed unit, the driving side and the region that sets both
 	 * in the panel, changes them in the simulation and keeps them, and calls
-	 * updateSpeeds with a new unit.
+	 * updateSpeeds with a new unit. A town that opens sets the region of its
+	 * country (townRegion.open), unless one was chosen by hand while it was
+	 * open, which is kept for it.
 	 */
 	function initRegion(updateSpeeds)
 	{
 		var config = sim.config;
+		var regions = TrafficUnits.regions;
 		var region = document.getElementById('region');
 		var units = document.getElementById('units');
 		var side = document.getElementById('side');
+		var hint = document.getElementById('region-hint');
+		var currentTown = null;
 		addOptions(region, regions.map(function(r) { return r.name; }),
 			regions.map(function(r) { return r.label; }));
 		addOptions(units, TrafficUnits.units, TrafficUnits.units.map(TrafficUnits.getLabel));
 		addOptions(side, ['right', 'left'], ['Right-hand traffic', 'Left-hand traffic']);
+
+		function getRegion(name)
+		{
+			return regions.filter(function(r)
+			{
+				return r.name == name;
+			})[0];
+		};
 
 		// Each region has another pair of unit and side
 		function show()
@@ -452,6 +465,12 @@
 			{
 				return r.units == config.units && r.leftHand == config.leftHand;
 			})[0].name;
+		};
+
+		function showHint(text)
+		{
+			hint.textContent = text || '';
+			hint.hidden = text == null;
 		};
 
 		function setUnits(value)
@@ -469,40 +488,127 @@
 			}
 		};
 
-		function setLeftHand(value)
+		// With next, for the diagram that opens next
+		function setLeftHand(value, next)
 		{
 			if (value != config.leftHand)
 			{
-				sim.setOption('leftHand', value);
+				sim.setOption('leftHand', value, next);
 				writeSetting(sideKey, (value) ? 'left' : 'right');
+			}
+		};
+
+		/**
+		 * Returns the regions chosen by hand for towns by the keys of their
+		 * places, the last chosen last.
+		 */
+		function readChoices()
+		{
+			try
+			{
+				var choices = JSON.parse(readSetting(townRegionsKey));
+
+				return (choices != null && typeof choices == 'object') ? choices : {};
+			}
+			catch (e)
+			{
+				return {};
+			}
+		};
+
+		// Keeps the region chosen by hand for the open town, and those of the
+		// last towns
+		function keepChoice()
+		{
+			show();
+
+			if (currentTown != null)
+			{
+				var choices = readChoices();
+				delete choices[currentTown.key];
+				choices[currentTown.key] = region.value;
+				var keys = Object.keys(choices);
+
+				for (var i = 0; i < keys.length - maxTownRegions; i++)
+				{
+					delete choices[keys[i]];
+				}
+
+				writeSetting(townRegionsKey, JSON.stringify(choices));
+				showHint('Kept for ' + currentTown.name + ' when it opens again.');
 			}
 		};
 
 		units.addEventListener('change', function()
 		{
 			setUnits(units.value);
-			show();
+			keepChoice();
 		});
 
 		side.addEventListener('change', function()
 		{
 			setLeftHand(side.value == 'left');
-			show();
+			keepChoice();
 		});
 
 		region.addEventListener('change', function()
 		{
-			var r = regions.filter(function(r)
-			{
-				return r.name == region.value;
-			})[0];
-
+			var r = getRegion(region.value);
 			setUnits(r.units);
 			setLeftHand(r.leftHand);
-			show();
+			keepChoice();
 		});
 
+		townRegion = {
+			/**
+			 * Sets the region of the given place of a town that is about to
+			 * open: the one chosen by hand for it, else that of its country,
+			 * else it keeps the region.
+			 */
+			open: function(place)
+			{
+				var code = TrafficUnits.getTerritory(place.countryCode, place.subdivisions);
+				var choice = getRegion(readChoices()[place.key]);
+				var r = choice || TrafficUnits.getRegion(code);
+				currentTown = {key: place.key, name: place.name};
+
+				if (r != null)
+				{
+					setUnits(r.units);
+					setLeftHand(r.leftHand, true);
+					show();
+				}
+
+				showHint((choice != null) ? 'As you chose for ' + place.name + '.' : ((r != null) ?
+					'From the country of ' + place.name + ': ' + getCountryName(code, place.country) + '.' : null));
+			},
+
+			/**
+			 * Forgets the town when another diagram opens.
+			 */
+			clear: function()
+			{
+				currentTown = null;
+				showHint(null);
+			}};
+
 		show();
+	};
+
+	/**
+	 * Returns the English name of the country or territory with the given
+	 * ISO 3166-1 code, else the given name.
+	 */
+	function getCountryName(code, name)
+	{
+		try
+		{
+			return new Intl.DisplayNames(['en'], {type: 'region'}).of(code.toUpperCase());
+		}
+		catch (e)
+		{
+			return name || code.toUpperCase();
+		}
 	};
 
 	/**
@@ -2171,6 +2277,10 @@
 						document.getElementById('cars').value = cars;
 
 						showInfo(p, l, s, st, r.entry, cars);
+					}, function()
+					{
+						// Painted and built for the driving side of its country
+						townRegion.open(p);
 					});
 				}
 			})['catch'](function(e)
@@ -2451,6 +2561,7 @@
 		}, clear: function()
 		{
 			loaded = null;
+			townRegion.clear();
 			linkButton.disabled = true;
 			infoText.hidden = true;
 			clearUrl();
@@ -2542,14 +2653,20 @@
 	 * opens files in a new window if the diagram is not empty, and fits the
 	 * whole diagram into the window. Asks again to discard the changes of
 	 * the diagram only if it changed while the file loaded, but drops the
-	 * file then if the question is open for a newer load.
+	 * file then if the question is open for a newer load. Calls onOpen just
+	 * before it opens and onLoad after.
 	 */
-	function openFile(xml, name, load, onLoad)
+	function openFile(xml, name, load, onLoad, onOpen)
 	{
 		var win = frame.contentWindow;
 
 		var fn = function()
 		{
+			if (onOpen != null)
+			{
+				onOpen();
+			}
+
 			drawOutsideDocument(function()
 			{
 				// Towns and examples set the URL themselves

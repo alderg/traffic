@@ -6517,9 +6517,10 @@ window.TrafficSimulation = function(ui, listener)
 	 * changes the colors of the vehicles without adaptive, units (kmh or mph)
 	 * shows the speeds in another unit, and leftHand, the driving side,
 	 * repaints the roads and roundabouts and starts again with the network
-	 * mirrored.
+	 * mirrored, or with next only applies to the diagram that opens next,
+	 * eg. a town, which is painted and built with it.
 	 */
-	function setOption(key, value)
+	function setOption(key, value, next)
 	{
 		config[key] = value;
 
@@ -6602,11 +6603,15 @@ window.TrafficSimulation = function(ui, listener)
 			// The roads are painted mirrored, the rings turn the other way,
 			// and the cars start again
 			roads.leftHand = value;
-			redrawShapes();
 
-			if (overlay != null)
+			if (!next)
 			{
-				reset();
+				redrawShapes();
+
+				if (overlay != null)
+				{
+					reset();
+				}
 			}
 		}
 		else if (key == 'adaptive')

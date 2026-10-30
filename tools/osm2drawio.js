@@ -11,7 +11,7 @@
  *     --bbox south,west,north,east] lookup.json [overpass.json output.drawio]
  *
  * lookup.json is the answer of
- *   https://nominatim.openstreetmap.org/lookup?osm_ids=R1682248&format=jsonv2&polygon_geojson=1&polygon_threshold=0.0001&extratags=1
+ *   https://nominatim.openstreetmap.org/lookup?osm_ids=R1682248&format=jsonv2&polygon_geojson=1&polygon_threshold=0.0001&extratags=1&addressdetails=1
  * and overpass.json the answer of Overpass to the query of --query.
  */
 var fs = require('fs');

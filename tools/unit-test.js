@@ -3,9 +3,10 @@
  */
 /**
  * Checks the conversion of the speeds between km/h and mph, the speed limits
- * of roads in both units and the lanes of roads on the right and, mirrored,
- * on the left with left-hand traffic, without a browser. The roads run with
- * the few functions of draw.io that they use for styles.
+ * of roads in both units, the lanes of roads on the right and, mirrored, on
+ * the left with left-hand traffic, and the regions of countries and of the
+ * places of Nominatim, without a browser. The roads run with the few functions of draw.io that they use
+ * for styles.
  *
  * Usage: node tools/unit-test.js
  */
@@ -15,6 +16,7 @@ var path = require('path');
 var vm = require('vm');
 
 var units = require('../js/units.js');
+var osm = require('../js/osm.js');
 var context = {mxConstants: {NONE: 'none', STYLE_ENDARROW: 'endArrow', STYLE_STARTARROW: 'startArrow'},
 	mxUtils: {getValue: function(style, key, defaultValue)
 	{
@@ -186,6 +188,88 @@ test('mirrors turns', function()
 	assert.strictEqual(roads.mirrorTurns('sr'), 'ls');
 	assert.strictEqual(roads.mirrorTurns('s'), 's');
 	assert.strictEqual(roads.mirrorTurns(null), null);
+});
+
+/**
+ * Returns the name of the region of the given country code and ISO 3166-2
+ * codes of a place, as Nominatim gives them, or null.
+ */
+function getRegionName(country, subdivisions)
+{
+	var r = units.getRegion(units.getTerritory(country, subdivisions));
+
+	return (r != null) ? r.name : null;
+};
+
+test('maps countries to the region of their speed unit and driving side', function()
+{
+	var expected = {
+		// mph and left
+		gb: 'uk', im: 'uk', je: 'uk', gg: 'uk', bs: 'uk', jm: 'au', ky: 'uk', fk: 'uk',
+		// km/h and left
+		ie: 'au', au: 'au', nz: 'au', jp: 'au', in: 'au', za: 'au', sg: 'au', my: 'au', th: 'au', id: 'au',
+		pk: 'au', bd: 'au', lk: 'au', ke: 'au', mt: 'au', cy: 'au', hk: 'au', mo: 'au', tt: 'au', gy: 'au',
+		// mph and right
+		us: 'us', pr: 'us', gu: 'us', bz: 'us',
+		// km/h and right
+		de: 'world', ch: 'world', fr: 'world', it: 'world', es: 'world', nl: 'world', se: 'world',
+		pl: 'world', ca: 'world', mx: 'world', br: 'world', cn: 'world', kr: 'world', ru: 'world',
+		eg: 'world', ng: 'world', gi: 'world', ar: 'world'};
+
+	for (var code in expected)
+	{
+		assert.strictEqual(getRegionName(code, []), expected[code], code);
+	}
+
+	// Each region has its pair of speed unit and driving side
+	assert.strictEqual(units.getRegion('gb').units, 'mph');
+	assert.strictEqual(units.getRegion('gb').leftHand, true);
+	assert.strictEqual(units.getRegion('au').units, 'kmh');
+	assert.strictEqual(units.getRegion('us').leftHand, false);
+	assert.strictEqual(units.getRegion('GB').name, 'uk');
+});
+
+test('maps territories in the subdivisions of a country', function()
+{
+	// As Nominatim gives them in address, eg. for Hong Kong and San Juan
+	assert.strictEqual(getRegionName('cn', ['CN-HK']), 'au');
+	assert.strictEqual(getRegionName('cn', ['CN-MO']), 'au');
+	assert.strictEqual(getRegionName('cn', ['CN-BJ']), 'world');
+	assert.strictEqual(getRegionName('us', ['US-PR']), 'us');
+	assert.strictEqual(getRegionName('us', ['US-VI']), 'uk');
+	assert.strictEqual(getRegionName('us', ['US-CA']), 'us');
+	assert.strictEqual(getRegionName('us', ['US-MS']), 'us');
+	assert.strictEqual(getRegionName('gb', ['GB-ENG']), 'uk');
+	assert.strictEqual(getRegionName('au', ['AU-NSW']), 'au');
+	assert.strictEqual(units.getTerritory('cn', ['CN-HK']), 'hk');
+	assert.strictEqual(units.getTerritory('GB', null), 'gb');
+});
+
+test('reads the country of a place from the answer of Nominatim', function()
+{
+	// As a lookup with addressdetails=1 answers for Hong Kong
+	var place = osm.getLookupPlace({osm_type: 'relation', osm_id: 913110, name: 'Hong Kong',
+		display_name: 'Hong Kong, China', addresstype: 'region', lat: '22.35', lon: '114.18',
+		boundingbox: ['22.15', '22.56', '113.83', '114.44'], address: {region: 'Hong Kong',
+		'ISO3166-2-lvl3': 'CN-HK', country: 'China', country_code: 'cn'}});
+	assert.strictEqual(place.country, 'China');
+	assert.strictEqual(place.countryCode, 'cn');
+	assert.strictEqual(place.subdivisions.join(), 'CN-HK');
+	assert.strictEqual(getRegionName(place.countryCode, place.subdivisions), 'au');
+
+	// Without an address, the region stays
+	place = osm.getLookupPlace({osm_type: 'node', osm_id: 1, name: 'Somewhere', display_name: 'Somewhere',
+		lat: '0', lon: '0'});
+	assert.strictEqual(place.countryCode, null);
+	assert.strictEqual(place.subdivisions.length, 0);
+	assert.strictEqual(getRegionName(place.countryCode, place.subdivisions), null);
+});
+
+test('keeps the region without a country', function()
+{
+	assert.strictEqual(getRegionName(null, []), null);
+	assert.strictEqual(getRegionName('', null), null);
+	assert.strictEqual(units.getRegion(null), null);
 });
 
 var failed = 0;

@@ -429,6 +429,25 @@ both sides.
   United States (mph, right), United Kingdom (mph, left) and Australia,
   Japan, India (km/h, left). As each pair has its region, it always shows
   the region of the current speed unit and driving side.
+- A town that loads sets the region of its country, eg. United Kingdom for
+  a town in Britain, Australia, Japan, India for one in Ireland, New
+  Zealand or South Africa, United States for the United States and Europe
+  and most countries for Switzerland, and a hint below says so ("From the
+  country of Zug: Switzerland."). The country is the ISO 3166-1 code that
+  Nominatim gives in the address of the town (`addressdetails=1`), with the
+  ISO 3166-2 codes of its subdivisions for territories that drive
+  otherwise than their country: Hong Kong and Macau (CN-HK, CN-MO) on the
+  left, the US Virgin Islands (US-VI) on the left with mph. The countries
+  and territories that drive on the left or have speed limits in mph are
+  listed in `js/units.js` (`getRegion`), all others drive on the right with
+  km/h, and a town without a country keeps the region. A region, speed
+  unit or driving side chosen by hand while a town is open is kept for
+  that town ("Kept for Zug when it opens again.") and wins over its country
+  whenever it loads again, also from a link (`traffic-town-regions` in
+  localStorage, by the OpenStreetMap key of the town, for the last 100
+  towns). The region is set before the town opens, so that it is painted
+  and built on its side at once, and stays when an example opens next,
+  which forgets the town.
 
 ## Trips
 
@@ -761,11 +780,10 @@ at the top, and with lanes 3.5 m wide like on the streets of the map:
   bottom right corner of the diagram shows "© OpenStreetMap contributors,
   ODbL" with links at all zoom levels.
 
-Towns drive on the Driving side of the panel, which loading a town does
-not change, so choose United Kingdom or Australia, Japan, India under
-Region for towns there: their lanes per direction (`lanesForward` and
-`lanesBackward`) are on the side of their direction, so they fit both
-sides. Turn lanes are not loaded.
+Towns drive on the side of their country, which sets the region (see
+[Speed Unit and Driving Side](#speed-unit-and-driving-side)): their lanes
+per direction (`lanesForward` and `lanesBackward`) are on the side of
+their direction, so they fit both sides. Turn lanes are not loaded.
 
 Tested on 2026-10-29 in Chrome without a GPU, at 10x with Show density
 and the heads of the traffic lights, in frames per second with all layers, with only the map and the vehicles,
@@ -809,7 +827,8 @@ The browser loads all data directly, as all services send
   (`featureType=settlement`, without states and countries) and returns its
   boundary (`lookup` with `polygon_geojson=1` and `polygon_threshold=0.0001`,
   about 10 m, 250 to 1,300 points for Zug, Zurich, Berlin and Los
-  Angeles). Its [policy](https://operations.osmfoundation.org/policies/nominatim/)
+  Angeles) and its country (`addressdetails=1`); places cached before
+  without their country are looked up again. Its [policy](https://operations.osmfoundation.org/policies/nominatim/)
   allows at most one request per second, which the page keeps, and no
   autocomplete; browsers identify the site with the Referer. Results and
   boundaries are cached.
@@ -927,8 +946,9 @@ then writes its own debug messages and has a Develop menu.
   button, so that it follows every start and stop. The editor in its frame
   keeps its icon to itself.
 - `js/units.js` converts and formats the speeds of the panel and the
-  simulation from km/h to the speed unit, in the page, in the editor and in
-  Node for `tools/unit-test.js`. With left-hand traffic
+  simulation from km/h to the speed unit and has the regions with the
+  countries that drive on the left or with mph, in the page, in the editor
+  and in Node for `tools/unit-test.js`. With left-hand traffic
   (`TrafficRoads.leftHand`, which `setOption('leftHand')` sets),
   `TrafficRoads.getLanePlan` returns the mirror image of the lanes of each
   road (`mirrorLanes`: the opposite order with left and right turns
@@ -1049,11 +1069,16 @@ then writes its own debug messages and has a Develop menu.
   ```
 
   `tools/unit-test.js` checks the conversion of the speeds, speed limits in
-  km/h and mph and the lanes on both driving sides in Node, and
-  `tools/driving-side-test.js` the panel in mph and the cars of the Town
-  example, which keep left and drive clockwise around the roundabout with
-  left-hand traffic and keep right and drive counterclockwise with
-  right-hand traffic, in headless Chrome like the smoke test:
+  km/h and mph, the lanes on both driving sides and the regions of
+  countries and territories in Node, and `tools/driving-side-test.js` the
+  panel in mph and the cars of the Town example, which keep left and drive
+  clockwise around the roundabout with left-hand traffic and keep right and
+  drive counterclockwise with right-hand traffic, and then towns in the
+  United Kingdom and Australia, which it serves itself instead of
+  Nominatim and Overpass: they get their region, cars keep left there, a
+  region chosen by hand is kept for the town, and a place cached without
+  its country is looked up again. It runs in headless Chrome like the smoke
+  test:
 
   ```bash
   node tools/unit-test.js

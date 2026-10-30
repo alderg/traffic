@@ -309,13 +309,25 @@ var TrafficOsm = (function()
 	/**
 	 * Returns the place of the given result of a Nominatim lookup with its
 	 * boundary as rings, or the radius of its kind without one, as the page
-	 * and tools/osm2drawio.js load it.
+	 * and tools/osm2drawio.js load it, and its country: the name, the
+	 * ISO 3166-1 code (countryCode, eg. gb) and the ISO 3166-2 codes of its
+	 * subdivisions (eg. GB-ENG, or CN-HK for Hong Kong), null without.
 	 */
 	function getLookupPlace(r)
 	{
 		var place = getNominatimPlace(r);
 		var g = r.geojson;
+		var address = r.address || {};
 		place.rings = null;
+		place.country = address.country || null;
+		place.countryCode = address.country_code || null;
+		place.subdivisions = Object.keys(address).filter(function(key)
+		{
+			return /^ISO3166-2/.test(key);
+		}).sort().map(function(key)
+		{
+			return address[key];
+		});
 
 		if (g != null && g.type == 'Polygon')
 		{
@@ -399,8 +411,9 @@ var TrafficOsm = (function()
 
 	/**
 	 * Returns the place with the given key, eg. relation/1682248, with the
-	 * rings of its boundary as [lon, lat] or null if it has none, from the
-	 * cache or Nominatim.
+	 * rings of its boundary as [lon, lat] or null if it has none and its
+	 * country, from the cache or Nominatim. Places that were cached without
+	 * their country are looked up again.
 	 */
 	function lookup(key, signal)
 	{
@@ -413,8 +426,9 @@ var TrafficOsm = (function()
 
 		return cacheGet('places', key).then(function(place)
 		{
-			return place || fetchNominatim('lookup?format=jsonv2&polygon_geojson=1&polygon_threshold=0.0001&' +
-				'extratags=1&accept-language=' + encodeURIComponent(getLanguage()) + '&osm_ids=' +
+			return (place != null && place.countryCode !== undefined) ? place :
+				fetchNominatim('lookup?format=jsonv2&polygon_geojson=1&polygon_threshold=0.0001&' +
+				'extratags=1&addressdetails=1&accept-language=' + encodeURIComponent(getLanguage()) + '&osm_ids=' +
 				m[1].charAt(0).toUpperCase() + m[2], signal).then(function(results)
 			{
 				if (results.length == 0)
